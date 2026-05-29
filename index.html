@@ -11,10 +11,6 @@
   <title>ميزانيتي</title>
   <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;600;700;900&display=swap" rel="stylesheet" />
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-  <!-- Firebase SDKs -->
-  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
   <style>
     * {
       box-sizing: border-box;
@@ -642,6 +638,130 @@
 
     .ast:last-child {
       border-bottom: none
+    }
+
+    /* Goals/Planning */
+    .goal-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 16px;
+      margin-bottom: 14px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .goal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 12px;
+    }
+
+    .goal-info {
+      flex: 1;
+      text-align: right;
+    }
+
+    .goal-name {
+      font-size: 16px;
+      font-weight: 800;
+      color: var(--text);
+      margin-bottom: 4px;
+    }
+
+    .goal-date {
+      font-size: 11px;
+      color: var(--text2);
+    }
+
+    .goal-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+      background: var(--surface2);
+    }
+
+    .goal-progress-container {
+      margin-bottom: 12px;
+    }
+
+    .goal-progress-labels {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      margin-bottom: 6px;
+      font-weight: 700;
+    }
+
+    .goal-bar-bg {
+      height: 10px;
+      background: var(--surface2);
+      border-radius: 99px;
+      overflow: hidden;
+    }
+
+    .goal-bar-fill {
+      height: 100%;
+      border-radius: 99px;
+      transition: width 0.5s ease;
+    }
+
+    .goal-stats {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      padding-top: 12px;
+      border-top: 1px solid var(--border);
+    }
+
+    .goal-stat-item {
+      text-align: right;
+    }
+
+    .goal-stat-val {
+      font-size: 14px;
+      font-weight: 800;
+      color: var(--text);
+    }
+
+    .goal-stat-lbl {
+      font-size: 10px;
+      color: var(--text2);
+    }
+
+    .goal-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .goal-btn {
+      flex: 1;
+      padding: 8px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--surface2);
+      color: var(--text);
+      font-size: 12px;
+      font-family: Cairo;
+      cursor: pointer;
+    }
+
+    .goal-btn.primary {
+      background: var(--blue-dim);
+      color: var(--blue);
+      border-color: rgba(77, 159, 255, 0.2);
+    }
+
+    .goal-btn.danger {
+      background: var(--red-dim);
+      color: var(--red);
+      border-color: rgba(255, 77, 109, 0.2);
     }
 
     .ast-chip {
@@ -1497,6 +1617,7 @@
       <div class="sidebar-nav">
         <button class="snb on" data-t="dashboard" onclick="goTab('dashboard')"><span class="sni">◈</span>
           الرئيسية</button>
+        <button class="snb" data-t="planning" onclick="goTab('planning')"><span class="sni">🎯</span> التخطيط</button>
         <button class="snb" data-t="add" onclick="goTab('add')"><span class="sni">⊕</span> إضافة</button>
         <button class="snb" data-t="monthly" onclick="goTab('monthly')"><span class="sni">📅</span> التقرير
           الشهري</button>
@@ -1504,19 +1625,8 @@
         <button class="snb" data-t="records" onclick="goTab('records')"><span class="sni">≡</span> السجلات</button>
         <button class="snb" data-t="categories" onclick="goTab('categories')"><span class="sni">⊞</span> الفئات</button>
       </div>
-      <div class="sidebar-bottom">
-        <button class="saction sact-cloud" id="sidebar-cloud-btn" onclick="toggleCloudSync()">
-          <span id="sidebar-cloud-dot" class="cloud-dot warn"></span>
-          <span id="sidebar-cloud-lbl">سحابة ميزانيتي (مغلق)</span>
-        </button>
-        <button class="saction"
-          style="background:var(--purple-dim);color:var(--purple);border:1px solid rgba(167,139,250,.2)"
-          onclick="exportBackup()">💾 نسخة احتياطية (JSON)</button>
-        <button class="saction" style="background:var(--surface2);color:var(--text2);border:1px solid var(--border)"
-          onclick="unifiedImportTrigger()">📂 استعادة (JSON أو Excel)</button>
-        <button class="saction sact-export" onclick="exportExcel()">⬇ تصدير Excel للتقارير</button>
-        <button class="saction sact-import" onclick="document.getElementById('imp-file').click()">⬆ استيراد
-          Excel</button>
+      <div class="sidebar-bottom" style="border:none;padding:0">
+        <!-- Buttons removed, moved to settings gear -->
       </div>
     </div>
 
@@ -1533,15 +1643,8 @@
             </div>
           </div>
           <div class="hdr-btns">
-            <button class="hdr-btn btn-cloud" id="mob-cloud-btn" onclick="toggleCloudSync()">
-              <div id="mob-cloud-dot" class="sync-dot"></div>
-              <span id="mob-cloud-lbl">السحابة</span>
-            </button>
-            <button class="hdr-btn"
-              style="background:var(--purple-dim);color:var(--purple);border:1px solid rgba(167,139,250,.2)"
-              onclick="exportBackup()">💾 نسخة</button>
-            <button class="hdr-btn" style="background:var(--surface2);color:var(--text2);border:1px solid var(--border)"
-              onclick="unifiedImportTrigger()">📂 استعادة</button>
+            <button class="hdr-btn" onclick="showSettings()"
+              style="font-size:22px;background:none;border:none;color:var(--text);cursor:pointer;padding:8px">⚙️</button>
           </div>
         </div>
       </div>
@@ -1555,6 +1658,9 @@
           <div class="bar"></div>
         </button>
         <button class="nb" data-t="add" onclick="goTab('add')"><span class="ni">⊕</span><span>إضافة</span>
+          <div class="bar"></div>
+        </button>
+        <button class="nb" data-t="planning" onclick="goTab('planning')"><span class="ni">🎯</span><span>تخطيط</span>
           <div class="bar"></div>
         </button>
         <button class="nb" data-t="monthly" onclick="goTab('monthly')"><span class="ni">📅</span><span>شهري</span>
@@ -1576,29 +1682,11 @@
 
   <script>
     // ══ FIREBASE CONFIG ════════════════════════════════════════════════
-    const firebaseConfig = {
-      apiKey: "AIzaSyDMDD679edNIq_RCinhFeGFkEQNwyF9-6Y",
-      authDomain: "floosy-18419.firebaseapp.com",
-      databaseURL: "https://floosy-18419-default-rtdb.firebaseio.com",
-      projectId: "floosy-18419",
-      storageBucket: "floosy-18419.firebasestorage.app",
-      messagingSenderId: "538971541843",
-      appId: "1:538971541843:web:10d7761f0463f48a5d51a6",
-      measurementId: "G-MV991LD7PQ"
-    };
-
-    // Initialize Firebase
-    firebase.initializeApp(firebaseConfig);
-    const db = firebase.database();
-    const auth = firebase.auth();
-
-    let firebaseUser = null;
-    let isCloudEnabled = false;
-
     // ══ STATE ══════════════════════════════════════════════════════════
     let records = [];
     let categories = { income: [], expense: [], asset: [] };
     let assets = [];
+    let goals = [];
     let currentTab = 'dashboard';
     let addType = 'income';
     let catTab = 'income';
@@ -1606,10 +1694,7 @@
     let filterFrom = '';
     let filterTo = '';
     let editingCat = null;
-
     let appPin = "", currentPinInput = "", isLocked = false, isSettingPinFirstTime = false;
-    let cloudStatus = 'local';
-    let lastSyncTime = null;
 
     // ══ STORAGE ════════════════════════════════════════════════════════
     function lsSet(k, v) { localStorage.setItem(k, JSON.stringify(v)); }
@@ -1622,178 +1707,57 @@
       lsSet('fin_records', records);
       lsSet('fin_cats', categories);
       lsSet('fin_assets', assets);
-      // ارفع للسحابة تلقائياً لو مفعلة
-      if (isCloudEnabled) scheduleCloudUpload();
-    }
-
-    function scheduleCloudUpload() {
-      clearTimeout(window._uploadTimer);
-      window._uploadTimer = setTimeout(() => uploadToFirebase(), 1500);
+      lsSet('fin_goals', goals);
     }
 
     async function initData() {
-      // تنظيف مخلفات الأنظمة القديمة
       cleanupOldSystemData();
-
       try {
         records = lsGet('fin_records', []);
         categories = lsGet('fin_cats', { income: [], expense: [], asset: [] });
         assets = lsGet('fin_assets', []);
+        goals = lsGet('fin_goals', []);
         appPin = lsGet('app_pin', "");
-        isCloudEnabled = lsGet('cloud_enabled', false);
-        lastSyncTime = lsGet('last_sync_time', null);
       } catch (e) {
-        records = []; categories = { income: [], expense: [], asset: [] }; assets = []; appPin = "";
+        records = []; categories = { income: [], expense: [], asset: [] }; assets = []; goals = []; appPin = "";
       }
       document.getElementById('loading').style.display = 'none';
       checkSecurityInit();
-      // تهيئة المزامنة السحابية
-      setTimeout(initFirebaseSync, 1000);
     }
 
     function cleanupOldSystemData() {
-      // مسح مفاتيح جوجل درايف القديمة
-      const oldKeys = ['drive_file_id', 'google_logged_in', 'last_sync_time_gdrive'];
+      const oldKeys = ['drive_file_id', 'google_logged_in', 'last_sync_time_gdrive', 'cloud_enabled', 'last_sync_time'];
       oldKeys.forEach(k => localStorage.removeItem(k));
-      // تنظيف السجلات من أي بيانات تالفة
       records = records.filter(r => r && r.id && r.amount);
     }
 
-    // ══ FIREBASE SYNC LOGIC ════════════════════════════════════════════
-    async function initFirebaseSync() {
-      if (!isCloudEnabled) { updateCloudUI(); return; }
-      cloudStatus = 'syncing'; updateCloudUI();
+    // ══ SETTINGS & DATA MANAGEMENT ═════════════════════════════════════
+    function showSettings() {
+      const btnStyle = `width:100%;padding:14px;margin-bottom:10px;border-radius:12px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-weight:600;display:flex;align-items:center;justify-content:center;gap:10px;cursor:pointer;font-family:Cairo,sans-serif`;
 
-      auth.onAuthStateChanged(async (user) => {
-        if (user) {
-          firebaseUser = user;
-          // الاستماع للتغيرات في قاعدة البيانات
-          const dataRef = db.ref('users/' + user.uid + '/data');
-          dataRef.on('value', (snapshot) => {
-            const cloudData = snapshot.val();
-            if (cloudData && cloudData.savedAt > (lastSyncTime || 0)) {
-              // السحابة أحدث — تحديث محلي
-              records = cloudData.records || [];
-              categories = cloudData.categories || { income: [], expense: [], asset: [] };
-              assets = cloudData.assets || [];
-              lastSyncTime = cloudData.savedAt;
-              lsSet('fin_records', records);
-              lsSet('fin_cats', categories);
-              lsSet('fin_assets', assets);
-              lsSet('last_sync_time', lastSyncTime);
-              cloudStatus = 'synced';
-              updateCloudUI();
-              render();
-            } else {
-              cloudStatus = 'synced';
-              updateCloudUI();
-            }
-          });
-        } else {
-          // لم يتم تسجيل الدخول
-          cloudStatus = 'local';
-          updateCloudUI();
+      openModal({
+        icon: '⚙️', title: 'إعدادات البيانات', danger: false,
+        body: `<div style="padding-top:10px">
+          <button style="${btnStyle};border-color:var(--purple)" onclick="closeModal();exportBackup()">💾 تصدير نسخة احتياطية (JSON)</button>
+          <button style="${btnStyle};border-color:var(--blue)" onclick="closeModal();unifiedImportTrigger()">📂 استعادة بيانات (JSON أو Excel)</button>
+          <button style="${btnStyle};border-color:var(--green)" onclick="closeModal();exportExcel()">⬇ تصدير سجلات (Excel)</button>
+          <button style="${btnStyle};border-color:var(--red);color:var(--red);margin-top:20px" onclick="clearAllDataConfirm()">🗑️ مسح كافة البيانات</button>
+        </div>`,
+        okLabel: 'إغلاق', onOk: () => closeModal()
+      });
+    }
+
+    function clearAllDataConfirm() {
+      openModal({
+        icon: '⚠️', title: 'مسح شامل', body: 'سيتم مسح كافة البيانات المسجلة على هذا الجهاز نهائياً. هل أنت متأكد؟',
+        okLabel: 'نعم، امسح الكل', onOk: () => {
+          localStorage.clear();
+          location.reload();
         }
       });
     }
 
-    async function loginWithGoogle() {
-      if (window.location.protocol === 'file:') {
-        openModal({
-          icon: '⚠️', title: 'بيئة غير مدعومة', body: 'تسجيل الدخول بجوجل لا يعمل عند فتح الملف مباشرة (file://). يرجى تشغيل التطبيق من خلال خادم (Server) أو رفعه على GitHub Pages ليعمل الربط.',
-          okLabel: 'حسناً',
-          onOk: () => closeModal()
-        });
-        return;
-      }
 
-      const provider = new firebase.auth.GoogleAuthProvider();
-      try {
-        await auth.signInWithPopup(provider);
-        isCloudEnabled = true;
-        lsSet('cloud_enabled', true);
-        toast('تم تسجيل الدخول بنجاح ✓', 'ok');
-      } catch (e) {
-        console.error(e);
-        let msg = 'فشل تسجيل الدخول';
-        if (e.code === 'auth/popup-blocked') msg = 'تم حظر النافذة المنبثقة! يرجى السماح بها';
-        else if (e.code === 'auth/operation-not-allowed') msg = 'يجب تفعيل Google في لوحة تحكم Firebase';
-        else msg += ': ' + e.message;
-        toast(msg, 'err');
-      }
-    }
-
-    async function uploadToFirebase() {
-      if (!firebaseUser || !isCloudEnabled) return;
-      const data = {
-        records, categories, assets,
-        savedAt: Date.now()
-      };
-      try {
-        await db.ref('users/' + firebaseUser.uid + '/data').set(data);
-        lastSyncTime = data.savedAt;
-        lsSet('last_sync_time', lastSyncTime);
-        cloudStatus = 'synced';
-        updateCloudUI();
-      } catch (e) {
-        cloudStatus = 'error'; updateCloudUI();
-      }
-    }
-
-    function toggleCloudSync() {
-      if (isCloudEnabled) {
-        openModal({
-          icon: '☁️', title: 'إيقاف السحابة', body: 'هل تريد إيقاف المزامنة السحابية؟ (سيبقى الملف على جهازك فقط)',
-          okLabel: 'إيقاف',
-          onOk: () => {
-            isCloudEnabled = false;
-            lsSet('cloud_enabled', false);
-            cloudStatus = 'local';
-            auth.signOut();
-            updateCloudUI();
-            closeModal();
-            toast('تم إيقاف المزامنة', 'warn');
-          }
-        });
-      } else {
-        loginWithGoogle();
-      }
-    }
-
-    function updateCloudUI() {
-      const dot1 = document.getElementById('mob-cloud-dot');
-      const lbl1 = document.getElementById('mob-cloud-lbl');
-      const dot2 = document.getElementById('sidebar-cloud-dot');
-      const lbl2 = document.getElementById('sidebar-cloud-lbl');
-      const timeStr = lastSyncTime
-        ? 'آخر تحديث: ' + new Date(lastSyncTime).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })
-        : 'غير متصل';
-
-      if (!isCloudEnabled) {
-        if (dot1) dot1.style.background = 'var(--dim)';
-        if (dot2) dot2.className = 'cloud-dot';
-        if (lbl1) lbl1.textContent = 'أوفلاين';
-        if (lbl2) lbl2.textContent = 'السحابة معطلة';
-        return;
-      }
-
-      if (cloudStatus === 'syncing') {
-        if (dot1) dot1.style.background = 'var(--blue)';
-        if (dot2) dot2.className = 'cloud-dot pulse';
-        if (lbl1) lbl1.textContent = 'جاري الاتصال...';
-        if (lbl2) lbl2.textContent = 'جاري الاتصال...';
-      } else if (cloudStatus === 'synced') {
-        if (dot1) dot1.style.background = 'var(--green)';
-        if (dot2) dot2.className = 'cloud-dot ok';
-        if (lbl1) lbl1.textContent = 'سحابي ✓';
-        if (lbl2) lbl2.textContent = timeStr;
-      } else {
-        if (dot1) dot1.style.background = 'var(--red)';
-        if (dot2) dot2.className = 'cloud-dot err';
-        if (lbl1) lbl1.textContent = 'فشل الاتصال';
-        if (lbl2) lbl2.textContent = 'خطأ في السحابة';
-      }
-    }
 
     // ══ BACKUP & RESTORE ═══════════════════════════════════════════════
     function exportBackup() {
@@ -1839,7 +1803,6 @@
               records = data.records; categories = data.categories; assets = data.assets || [];
               if (data.appPin) appPin = data.appPin;
               saveAllLocal(); closeModal(); render(); toast('تمت الاستعادة بنجاح ✓', 'ok');
-              if (isCloudEnabled) uploadToFirebase();
             }
           });
         } catch (err) { toast('فشل الاستيراد: ملف JSON غير صحيح', 'err'); }
@@ -1897,7 +1860,6 @@
               records = [...importedRecs, ...records].sort((a, b) => b.date.localeCompare(a.date));
               assets = [...importedAssets, ...assets];
               saveAllLocal(); closeModal(); render(); toast('تم الدمج بنجاح ✓', 'ok');
-              if (isCloudEnabled) uploadToFirebase();
             }
           });
         } catch (err) { console.error(err); toast('خطأ في قراءة ملف Excel', 'err'); }
@@ -2145,6 +2107,149 @@
       else { categories[type] = categories[type].filter(c => c !== name); save(); render(); toast(`تم حذف "${name}"`, 'warn'); }
     }
 
+    // ══ PLANNING & GOALS ═══════════════════════════════════════════════
+    function rPlanning() {
+      const gList = goals.map(g => {
+        const remaining = Math.max(0, g.targetAmount - g.savedAmount);
+        const progress = Math.min(100, (g.savedAmount / g.targetAmount) * 100);
+
+        // التحليل: كم نحتاج شهرياً؟
+        const now = new Date();
+        const target = new Date(g.targetDate);
+        const diffMonths = (target.getFullYear() - now.getFullYear()) * 12 + (target.getMonth() - now.getMonth());
+        const monthlyNeeded = diffMonths > 0 ? (remaining / diffMonths) : remaining;
+
+        return `
+        <div class="goal-card">
+          <div class="goal-header">
+            <div class="goal-icon">${esc(g.icon || '🎯')}</div>
+            <div class="goal-info">
+              <div class="goal-name">${esc(g.name)}</div>
+              <div class="goal-date">الموعد المستهدف: ${g.targetDate}</div>
+            </div>
+          </div>
+          <div class="goal-progress-container">
+            <div class="goal-progress-labels">
+              <span>${fmt(g.savedAmount)}</span>
+              <span>الهدف: ${fmt(g.targetAmount)}</span>
+            </div>
+            <div class="goal-bar-bg"><div class="goal-bar-fill" style="width:${progress}%;background:${g.color || 'var(--blue)'}"></div></div>
+            <div style="text-align:center;font-size:11px;margin-top:6px;color:var(--text2)">إنجاز بنسبة ${progress.toFixed(1)}%</div>
+          </div>
+          <div class="goal-stats">
+            <div class="goal-stat-item">
+              <div class="goal-stat-val" style="color:var(--green)">${fmt(monthlyNeeded)}</div>
+              <div class="goal-stat-lbl">تحتاج ادخار شهري</div>
+            </div>
+            <div class="goal-stat-item">
+              <div class="goal-stat-val">${fmt(remaining)}</div>
+              <div class="goal-stat-lbl">المتبقي للهدف</div>
+            </div>
+          </div>
+          <div class="goal-actions">
+            <button class="goal-btn primary" onclick="contributeToGoal('${g.id}')">➕ إضافة مدخرات</button>
+            <button class="goal-btn" onclick="editGoalDialog('${g.id}')">✎ تعديل</button>
+            <button class="goal-btn danger" onclick="deleteGoal('${g.id}')">🗑️</button>
+          </div>
+        </div>`;
+      }).join('');
+
+      return `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+        <h2 style="font-size:20px;font-weight:900">التخطيط المالي</h2>
+        <button onclick="addGoalDialog()" style="background:var(--blue);color:#080c14;border:none;padding:8px 16px;border-radius:10px;font-weight:700;font-family:Cairo;cursor:pointer">🎯 هدف جديد</button>
+      </div>
+      ${goals.length === 0 ? `
+        <div class="empty" style="padding:60px 20px">
+          <div class="empty-i">🎯</div>
+          <p>لم تقم بإضافة أي أهداف مالية بعد.</p>
+          <p style="font-size:11px;color:var(--text2);margin-top:5px">خطط لشراء سيارة، منزل، أو حتى ادخار للطوارئ.</p>
+        </div>
+      ` : gList}`;
+    }
+
+    function addGoalDialog() {
+      const icons = ['🎯', '🚗', '🏠', '💍', '✈️', '💻', '🎓', '🏥', '🎁', '💰'];
+      const colors = ['#4d9fff', '#00d68f', '#ffb340', '#ff4d6d', '#a78bfa', '#22d3ee'];
+
+      openModal({
+        icon: '🎯', title: 'إضافة هدف جديد', danger: false,
+        body: `
+          <div style="text-align:right">
+            <div style="margin-bottom:10px">${MLBL('اسم الهدف')}<input id="g-name" type="text" placeholder="مثلاً: شراء سيارة" style="${MIS}"/></div>
+            <div style="margin-bottom:10px">${MLBL('المبلغ المستهدف (جنيه)')}<input id="g-target" type="number" inputmode="decimal" style="${MIS}"/></div>
+            <div style="margin-bottom:10px">${MLBL('المبلغ المدخر حالياً')}<input id="g-saved" type="number" inputmode="decimal" value="0" style="${MIS}"/></div>
+            <div style="margin-bottom:10px">${MLBL('تاريخ الوصول المستهدف')}<input id="g-date" type="date" value="${today()}" style="${MIS}"/></div>
+            <div style="margin-bottom:10px">${MLBL('أيقونة الهدف')}
+              <div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:5px">
+                ${icons.map(i => `<div class="icon-opt" onclick="window._gI='${i}';this.parentElement.querySelectorAll('.icon-opt').forEach(el=>el.style.background='var(--surface2)');this.style.background='var(--blue-dim)'" style="width:34px;height:34px;background:var(--surface2);border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:18px">${i}</div>`).join('')}
+              </div>
+            </div>
+          </div>`,
+        okLabel: 'إنشاء الهدف', okClass: 'green',
+        onOk: async () => {
+          const name = document.getElementById('g-name').value.trim();
+          const target = parseFloat(document.getElementById('g-target').value);
+          const saved = parseFloat(document.getElementById('g-saved').value) || 0;
+          const date = document.getElementById('g-date').value;
+          if (!name || !target || target <= 0) { toast('أكمل البيانات المطلوبة', 'err'); return; }
+          goals.push({ id: uid(), name, targetAmount: target, savedAmount: saved, targetDate: date, icon: window._gI || '🎯', color: colors[Math.floor(Math.random() * colors.length)] });
+          await save(); closeModal(); render(); toast('تم إنشاء الهدف بنجاح 🎯', 'ok');
+        }
+      });
+      window._gI = '🎯';
+    }
+
+    function editGoalDialog(id) {
+      const g = goals.find(x => x.id === id); if (!g) return;
+      openModal({
+        icon: '✎', title: 'تعديل الهدف', danger: false,
+        body: `
+          <div style="text-align:right">
+            <div style="margin-bottom:10px">${MLBL('اسم الهدف')}<input id="g-name" type="text" value="${esc(g.name)}" style="${MIS}"/></div>
+            <div style="margin-bottom:10px">${MLBL('المبلغ المستهدف')}<input id="g-target" type="number" value="${g.targetAmount}" style="${MIS}"/></div>
+            <div style="margin-bottom:10px">${MLBL('المبلغ المدخر')}<input id="g-saved" type="number" value="${g.savedAmount}" style="${MIS}"/></div>
+            <div style="margin-bottom:10px">${MLBL('تاريخ الوصول')}<input id="g-date" type="date" value="${g.targetDate}" style="${MIS}"/></div>
+          </div>`,
+        okLabel: 'تحديث', okClass: 'green',
+        onOk: async () => {
+          const name = document.getElementById('g-name').value.trim();
+          const target = parseFloat(document.getElementById('g-target').value);
+          const saved = parseFloat(document.getElementById('g-saved').value);
+          const date = document.getElementById('g-date').value;
+          if (!name || !target) return;
+          goals = goals.map(x => x.id === id ? { ...x, name, targetAmount: target, savedAmount: saved, targetDate: date } : x);
+          await save(); closeModal(); render(); toast('تم التحديث ✓', 'ok');
+        }
+      });
+    }
+
+    function deleteGoal(id) {
+      openModal({
+        icon: '🗑️', title: 'حذف الهدف', body: 'هل أنت متأكد من حذف هذا الهدف المالي؟',
+        okLabel: 'حذف', onOk: async () => {
+          goals = goals.filter(x => x.id !== id);
+          await save(); closeModal(); render(); toast('تم الحذف', 'warn');
+        }
+      });
+    }
+
+    function contributeToGoal(id) {
+      const g = goals.find(x => x.id === id); if (!g) return;
+      openModal({
+        icon: '💰', title: 'إضافة مدخرات', danger: false,
+        body: `<p style="font-size:13px;color:var(--text2);margin-bottom:15px;text-align:right">كم تريد أن تضيف لمدخرات "${esc(g.name)}"؟</p>
+          <div style="text-align:right">${MLBL('المبلغ المضاف (جنيه)')}<input id="c-amt" type="number" inputmode="decimal" placeholder="0.00" style="${MIS}"/></div>`,
+        okLabel: 'إضافة', okClass: 'green',
+        onOk: async () => {
+          const amt = parseFloat(document.getElementById('c-amt').value);
+          if (!amt || amt <= 0) return;
+          goals = goals.map(x => x.id === id ? { ...x, savedAmount: x.savedAmount + amt } : x);
+          await save(); closeModal(); render(); toast('تمت الإضافة للمدخرات ✓', 'ok');
+        }
+      });
+    }
+
     // ══ EXCEL EXPORT / IMPORT ══════════════════════════════════════════
     function exportExcel() {
       try {
@@ -2184,6 +2289,7 @@
       else if (currentTab === 'add') el.innerHTML = rAdd();
       else if (currentTab === 'monthly') el.innerHTML = rMonthly();
       else if (currentTab === 'assets') el.innerHTML = rAssets();
+      else if (currentTab === 'planning') el.innerHTML = rPlanning();
       else if (currentTab === 'records') el.innerHTML = rRecords();
       else if (currentTab === 'categories') el.innerHTML = rCategories();
     }
@@ -2201,23 +2307,11 @@
       const astCatList = Object.entries(astByC).sort((a, b) => b[1] - a[1]);
       const mI = incC[0]?.[1] || 1, mE = expC[0]?.[1] || 1, mA = astCatList[0]?.[1] || 1;
 
-      const syncStr = lastSyncTime
-        ? 'آخر مزامنة: ' + new Date(lastSyncTime).toLocaleString('ar-EG', { dateStyle: 'short', timeStyle: 'short' })
-        : 'لم تتم المزامنة بعد';
-
       const bars = (data, color, max) => data.length === 0
         ? `<div class="empty"><div class="empty-i">—</div>لا توجد بيانات</div>`
         : data.map(([c, a]) => `<div class="br"><div class="br-top"><span class="br-cat">${esc(c)}</span><span style="color:${color};font-weight:700;font-size:12px">${fmt(a)}</span></div><div class="bt"><div class="bf" style="background:${color};width:${(a / max * 100).toFixed(1)}%"></div></div></div>`).join('');
 
       return `
-  <div class="cloud-bar">
-    <div class="cloud-status">
-      <div class="cloud-dot ${cloudStatus === 'synced' ? 'ok' : cloudStatus === 'syncing' ? 'pulse' : cloudStatus === 'error' ? 'err' : 'warn'}"></div>
-      <span>${syncStr}</span>
-    </div>
-    <button class="cloud-action" onclick="triggerCloudSync(true)">مزامنة الآن</button>
-  </div>
-
   <div class="cards">
     <div class="card full wealth-card">
       <div style="display:flex;justify-content:space-between;align-items:flex-start">
