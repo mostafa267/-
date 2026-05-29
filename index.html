@@ -456,6 +456,7 @@ select{appearance:none;-webkit-appearance:none}
     <div class="sidebar-nav">
       <button class="snb on" data-t="dashboard" onclick="goTab('dashboard')"><span class="sni">◈</span> الرئيسية</button>
       <button class="snb" data-t="add" onclick="goTab('add')"><span class="sni">⊕</span> إضافة</button>
+      <button class="snb" data-t="monthly" onclick="goTab('monthly')"><span class="sni">📅</span> التقرير الشهري</button>
       <button class="snb" data-t="assets" onclick="goTab('assets')"><span class="sni">◈</span> الأصول</button>
       <button class="snb" data-t="records" onclick="goTab('records')"><span class="sni">≡</span> السجلات</button>
       <button class="snb" data-t="categories" onclick="goTab('categories')"><span class="sni">⊞</span> الفئات</button>
@@ -496,6 +497,7 @@ select{appearance:none;-webkit-appearance:none}
     <nav id="nav">
       <button class="nb on" data-t="dashboard" onclick="goTab('dashboard')"><span class="ni">◈</span><span>الرئيسية</span><div class="bar"></div></button>
       <button class="nb" data-t="add" onclick="goTab('add')"><span class="ni">⊕</span><span>إضافة</span><div class="bar"></div></button>
+      <button class="nb" data-t="monthly" onclick="goTab('monthly')"><span class="ni">📅</span><span>شهري</span><div class="bar"></div></button>
       <button class="nb" data-t="assets" onclick="goTab('assets')"><span class="ni">◈</span><span>الأصول</span><div class="bar"></div></button>
       <button class="nb" data-t="records" onclick="goTab('records')"><span class="ni">≡</span><span>السجلات</span><div class="bar"></div></button>
       <button class="nb" data-t="categories" onclick="goTab('categories')"><span class="ni">⊞</span><span>الفئات</span><div class="bar"></div></button>
@@ -634,17 +636,33 @@ function triggerCloudSync(isManual=false){
   if(!navigator.onLine){ if(isManual) toast('لا يوجد اتصال بالإنترنت','err'); return; }
   if(!gapiInited||!gisInited){ if(isManual) toast('جاري تهيئة مكتبات جوجل...','warn'); return; }
 
+  // لو عندنا token صالح — ابدأ المزامنة مباشرة بدون نافذة جوجل
+  const existingToken = gapi.client.getToken();
+  if(existingToken && existingToken.access_token){
+    cloudStatus = 'syncing'; updateCloudUI();
+    doSync(isManual);
+    return;
+  }
+
+  // أول مرة فقط: اطلب إذن المستخدم
   tokenClient.callback = async (resp) => {
-    if(resp.error){ cloudStatus='error'; updateCloudUI(); if(isManual) toast('فشل تسجيل الدخول لجوجل','err'); return; }
+    if(resp.error){
+      // لو رفض أو أغلق النافذة بدون login — مش هنظهر خطأ للمزامنة التلقائية
+      if(isManual){ cloudStatus='error'; updateCloudUI(); toast('فشل تسجيل الدخول لجوجل','err'); }
+      else { cloudStatus='local'; updateCloudUI(); }
+      return;
+    }
     gapi.client.setToken(resp);
+    cloudStatus = 'syncing'; updateCloudUI();
     await doSync(isManual);
   };
 
-  cloudStatus = 'syncing'; updateCloudUI();
-  if(gapi.client.getToken()===null){
+  // أول مرة: اطلب بـ consent / بعدها بدون prompt (صامت)
+  const hasLoggedInBefore = lsGet('google_logged_in', false);
+  if(!hasLoggedInBefore){
     tokenClient.requestAccessToken({prompt:'consent'});
   } else {
-    tokenClient.requestAccessToken({prompt:''});
+    tokenClient.requestAccessToken({prompt:'none'});
   }
 }
 
@@ -652,7 +670,9 @@ async function doSync(isManual=false){
   try{
     const payload = buildPayload();
     const blob    = new Blob([payload], {type:'application/json'});
-    const accessToken = gapi.client.getToken().access_token;
+    const tokenObj = gapi.client.getToken();
+    if(!tokenObj){ throw new Error('no_token'); }
+    const accessToken = tokenObj.access_token;
 
     if(driveFileId){
       // ← تحديث الملف الموجود (PATCH) — مسار سريع وصغير
@@ -693,10 +713,15 @@ async function doSync(isManual=false){
 
     lastSyncTime = Date.now();
     lsSet('last_sync_time', lastSyncTime);
+    lsSet('google_logged_in', true); // نحتفظ إن المستخدم سبق ووافق — مش هنطلب consent تاني
     cloudStatus = 'synced'; updateCloudUI();
     if(isManual) toast('تمت المزامنة مع جوجل درايف ✓','ok');
   } catch(err){
     console.error('Sync error:', err);
+    // لو انتهت صلاحية الـ token — امسحه عشان المرة الجاية يتجدد تلقائي
+    if(err.message === 'no_token' || (err.status === 401)){
+      gapi.client.setToken(null);
+    }
     cloudStatus = 'error'; updateCloudUI();
     if(isManual) toast('خطأ في المزامنة — حاول مجدداً','err');
   }
@@ -1017,6 +1042,7 @@ function render(){
   const el=document.getElementById('content');
   if(currentTab==='dashboard')   el.innerHTML=rDashboard();
   else if(currentTab==='add')    el.innerHTML=rAdd();
+  else if(currentTab==='monthly') el.innerHTML=rMonthly();
   else if(currentTab==='assets') el.innerHTML=rAssets();
   else if(currentTab==='records')el.innerHTML=rRecords();
   else if(currentTab==='categories') el.innerHTML=rCategories();
@@ -1212,6 +1238,160 @@ function rCategories(){
         let count=catTab==='asset'?assets.filter(a=>a.category===c).length:records.filter(r=>r.type===catTab&&r.category===c).length;
         return `<div class="ci"><div class="cd" style="background:${catTab==='income'?'var(--green)':catTab==='expense'?'var(--red)':'var(--amber)'}"></div><div class="cn">${esc(c)}</div><span class="cc">${count} عنصر</span><button class="ceb" onclick="startEditCat('${catTab}','${esc(c)}')">تعديل</button><button class="cdb" onclick="deleteCat('${catTab}','${esc(c)}')">حذف</button></div>`;
       }).join('')}
+    </div>
+  </div>`;
+}
+
+
+// ══ TAB: MONTHLY REPORT ════════════════════════════════════════════
+function rMonthly(){
+  // جمع كل الأشهر الموجودة في السجلات
+  const monthsSet = new Set();
+  records.forEach(r => { if(r.date) monthsSet.add(r.date.slice(0,7)); });
+  const allMonths = Array.from(monthsSet).sort((a,b)=>b.localeCompare(a));
+
+  if(allMonths.length === 0){
+    return `<div class="sec"><div class="sec-h">📅 التقرير الشهري</div><div class="empty"><div class="empty-i">—</div>لا توجد سجلات بعد</div></div>`;
+  }
+
+  // الشهر المحدد حالياً
+  if(!window._selMonth || !allMonths.includes(window._selMonth)){
+    window._selMonth = allMonths[0];
+  }
+  const sel = window._selMonth;
+  const selIdx = allMonths.indexOf(sel);
+  const prevMonth = allMonths[selIdx+1] || null;
+
+  // دالة حساب إجماليات شهر معين
+  function calcMonth(m){
+    const recs = records.filter(r => r.date && r.date.startsWith(m));
+    const inc  = recs.filter(r=>r.type==='income').reduce((s,r)=>s+r.amount,0);
+    const exp  = recs.filter(r=>r.type==='expense').reduce((s,r)=>s+r.amount,0);
+    // تصنيفات المصروف
+    const expCats = {};
+    recs.filter(r=>r.type==='expense').forEach(r=>{ expCats[r.category]=(expCats[r.category]||0)+r.amount; });
+    // تصنيفات الدخل
+    const incCats = {};
+    recs.filter(r=>r.type==='income').forEach(r=>{ incCats[r.category]=(incCats[r.category]||0)+r.amount; });
+    return { inc, exp, bal: inc-exp, expCats, incCats, count: recs.length };
+  }
+
+  const cur  = calcMonth(sel);
+  const prev = prevMonth ? calcMonth(prevMonth) : null;
+
+  // تحويل YYYY-MM لاسم عربي
+  function monthName(ym){
+    const [y,m] = ym.split('-');
+    const names = ['يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
+    return names[parseInt(m)-1] + ' ' + y;
+  }
+
+  // مؤشر المقارنة
+  function diffBadge(cur, prev, isIncome){
+    if(prev === null || prev === 0) return '';
+    const diff = cur - prev;
+    const pct  = Math.abs((diff/prev)*100).toFixed(0);
+    const up   = diff > 0;
+    // للدخل: زيادة = خضر | للمصروف: زيادة = أحمر
+    const good = isIncome ? up : !up;
+    const color = good ? 'var(--green)' : 'var(--red)';
+    const arrow = up ? '▲' : '▼';
+    return `<span style="font-size:11px;color:${color};font-weight:700;margin-right:6px">${arrow} ${pct}%</span>`;
+  }
+
+  // قائمة الأشهر dropdown
+  const monthOpts = allMonths.map(m =>
+    `<option value="${m}" ${m===sel?'selected':''}>${monthName(m)}</option>`
+  ).join('');
+
+  // أعلى 5 مصروفات
+  const topExp = Object.entries(cur.expCats).sort((a,b)=>b[1]-a[1]).slice(0,5);
+  const maxExp = topExp[0]?.[1] || 1;
+  const topInc = Object.entries(cur.incCats).sort((a,b)=>b[1]-a[1]).slice(0,5);
+  const maxInc = topInc[0]?.[1] || 1;
+
+  const expBars = topExp.length === 0
+    ? `<div class="empty"><div class="empty-i">—</div>لا مصروفات</div>`
+    : topExp.map(([c,a])=>`
+      <div class="br">
+        <div class="br-top"><span class="br-cat">${esc(c)}</span><span style="color:var(--red);font-weight:700;font-size:12px">${fmt(a)}</span></div>
+        <div class="bt"><div class="bf" style="background:var(--red);width:${(a/maxExp*100).toFixed(1)}%"></div></div>
+      </div>`).join('');
+
+  const incBars = topInc.length === 0
+    ? `<div class="empty"><div class="empty-i">—</div>لا دخل</div>`
+    : topInc.map(([c,a])=>`
+      <div class="br">
+        <div class="br-top"><span class="br-cat">${esc(c)}</span><span style="color:var(--green);font-weight:700;font-size:12px">${fmt(a)}</span></div>
+        <div class="bt"><div class="bf" style="background:var(--green);width:${(a/maxInc*100).toFixed(1)}%"></div></div>
+      </div>`).join('');
+
+  const balColor = cur.bal >= 0 ? 'var(--green)' : 'var(--red)';
+  const prevLabel = prev ? `مقارنةً بـ ${monthName(prevMonth)}` : 'لا يوجد شهر سابق للمقارنة';
+
+  return `
+  <div style="margin-bottom:12px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <div style="font-weight:900;font-size:16px">📅 التقرير الشهري</div>
+      <select class="fsel" style="width:auto;min-width:150px" onchange="window._selMonth=this.value;render()">
+        ${monthOpts}
+      </select>
+    </div>
+
+    <div style="font-size:11px;color:var(--text2);margin-bottom:12px;text-align:center">${prevLabel}</div>
+
+    <!-- بطاقات الملخص -->
+    <div class="cards" style="margin-bottom:12px">
+      <div class="card" style="border-color:rgba(0,214,143,.2)">
+        <div class="cl">الدخل</div>
+        <div class="cv" style="color:var(--green);font-size:20px">${fmt(cur.inc)}</div>
+        <div class="cs">${diffBadge(cur.inc, prev?.inc, true)} ${prev ? fmt(prev.inc)+' الشهر السابق' : ''}</div>
+      </div>
+      <div class="card" style="border-color:rgba(255,77,109,.2)">
+        <div class="cl">المصروف</div>
+        <div class="cv" style="color:var(--red);font-size:20px">${fmt(cur.exp)}</div>
+        <div class="cs">${diffBadge(cur.exp, prev?.exp, false)} ${prev ? fmt(prev.exp)+' الشهر السابق' : ''}</div>
+      </div>
+      <div class="card full" style="border-color:rgba(77,159,255,.2)">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div>
+            <div class="cl">صافي الشهر (دخل - مصروف)</div>
+            <div class="cv" style="color:${balColor};font-size:22px">${fmt(cur.bal)}</div>
+            <div class="cs">${prev ? diffBadge(cur.bal, prev.bal, true)+' كان '+fmt(prev.bal)+' الشهر السابق' : ''}</div>
+          </div>
+          <div style="text-align:left">
+            <div style="font-size:10px;color:var(--dim)">عدد المعاملات</div>
+            <div style="font-size:24px;font-weight:900;color:var(--blue)">${cur.count}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- مؤشر الادخار -->
+    ${cur.inc > 0 ? `
+    <div class="sec" style="margin-bottom:12px">
+      <div class="sec-h">نسبة الادخار من الدخل</div>
+      <div style="padding:14px 15px">
+        <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:8px">
+          <span style="color:var(--text2)">المُنفق: ${fmt(cur.exp)}</span>
+          <span style="font-weight:900;color:${cur.bal>=0?'var(--green)':'var(--red)'}">
+            ${cur.inc>0?(((cur.bal/cur.inc)*100).toFixed(1)):'0'}% ${cur.bal>=0?'ادخار':'عجز'}
+          </span>
+        </div>
+        <div class="bt" style="height:10px;border-radius:8px">
+          <div class="bf" style="background:${cur.bal>=0?'var(--green)':'var(--red)'};width:${Math.min(100,Math.abs(cur.exp/cur.inc*100)).toFixed(1)}%;border-radius:8px"></div>
+        </div>
+      </div>
+    </div>` : ''}
+
+    <!-- تفاصيل المصروف والدخل -->
+    <div class="sec" style="margin-bottom:12px">
+      <div class="sec-h">📉 أعلى مصروفات الشهر</div>
+      <div>${expBars}</div>
+    </div>
+    <div class="sec" style="margin-bottom:12px">
+      <div class="sec-h">📈 مصادر الدخل</div>
+      <div>${incBars}</div>
     </div>
   </div>`;
 }
