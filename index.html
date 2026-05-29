@@ -1698,6 +1698,15 @@
     }
 
     async function loginWithGoogle() {
+      if (window.location.protocol === 'file:') {
+        openModal({
+          icon: '⚠️', title: 'بيئة غير مدعومة', body: 'تسجيل الدخول بجوجل لا يعمل عند فتح الملف مباشرة (file://). يرجى تشغيل التطبيق من خلال خادم (Server) أو رفعه على GitHub Pages ليعمل الربط.',
+          okLabel: 'حسناً',
+          onOk: () => closeModal()
+        });
+        return;
+      }
+
       const provider = new firebase.auth.GoogleAuthProvider();
       try {
         await auth.signInWithPopup(provider);
@@ -1706,7 +1715,11 @@
         toast('تم تسجيل الدخول بنجاح ✓', 'ok');
       } catch (e) {
         console.error(e);
-        toast('فشل تسجيل الدخول', 'err');
+        let msg = 'فشل تسجيل الدخول';
+        if (e.code === 'auth/popup-blocked') msg = 'تم حظر النافذة المنبثقة! يرجى السماح بها';
+        else if (e.code === 'auth/operation-not-allowed') msg = 'يجب تفعيل Google في لوحة تحكم Firebase';
+        else msg += ': ' + e.message;
+        toast(msg, 'err');
       }
     }
 
