@@ -565,7 +565,30 @@ async function save(){
   lsSet('fin_records', records);
   lsSet('fin_cats',    categories);
   lsSet('fin_assets',  assets);
-  // المزامنة يدوية فقط عبر زر المزامنة — لا auto-sync بعد كل إضافة
+  // auto-upload بعد كل تعديل لو كان مزامن
+  if(cloudStatus === 'synced') scheduleAutoUpload();
+}
+
+function scheduleAutoUpload(){
+  clearTimeout(window._autoUploadTimer);
+  window._autoUploadTimer = setTimeout(async ()=>{
+    // ارفع فقط بدون سحب
+    const token = gapi.client.getToken();
+    if(!token || !token.access_token) return;
+    try{
+      const accessToken = token.access_token;
+      const payload = buildPayload();
+      const blob = new Blob([payload], {type:'application/json'});
+      if(driveFileId){
+        await fetch(
+          `https://www.googleapis.com/upload/drive/v3/files/${driveFileId}?uploadType=media`,
+          { method:'PATCH', headers:{ 'Authorization':`Bearer ${accessToken}`, 'Content-Type':'application/json' }, body: blob }
+        );
+        lastSyncTime = Date.now();
+        lsSet('last_sync_time', lastSyncTime);
+      }
+    } catch(e){ console.error('auto-upload error:', e); }
+  }, 2000);
 }
 
 function scheduleAutoSync(){
@@ -695,7 +718,32 @@ async function doSync(isManual=false){
       }
     }
 
-    // ← ارفع البيانات الحالية للدرايف فقط (السحب يتم عبر زر الاستعادة فقط)
+    // ← اجيب البيانات من الدرايف الأول وقارن التاريخ
+    if(driveFileId){
+      const res = await fetch(
+        `https://www.googleapis.com/drive/v3/files/${driveFileId}?alt=media`,
+        { headers:{ 'Authorization':`Bearer ${accessToken}` } }
+      );
+      if(res.ok){
+        const driveData = await res.json();
+        const driveTime = driveData.exportedAt ? new Date(driveData.exportedAt).getTime() : 0;
+        const localTime = lastSyncTime || 0;
+        // لو الدرايف أحدث من آخر مزامنة محلية — اجيب منه
+        if(driveTime > localTime){
+          if(driveData.records)    records    = driveData.records;
+          if(driveData.categories) categories = driveData.categories;
+          if(driveData.assets)     assets     = driveData.assets;
+          lsSet('fin_records', records);
+          lsSet('fin_cats',    categories);
+          lsSet('fin_assets',  assets);
+          render();
+          if(isManual) toast('تم تحديث البيانات من جوجل درايف ✓','ok');
+          // بعد السحب ارفع بنفس البيانات عشان يتزامن الوقت
+        }
+      }
+    }
+
+    // ← ارفع البيانات الحالية للدرايف
     const payload = buildPayload();
     const blob    = new Blob([payload], {type:'application/json'});
 
