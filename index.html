@@ -1941,15 +1941,17 @@
     }
 
     // ══ MODAL ══════════════════════════════════════════════════════════
-    function openModal({ icon = '!', title, body, extra = '', danger = true, cancelLabel = 'إلغاء', okLabel, okClass = 'red', onOk }) {
+    function openModal({ icon = '!', title, body, extra = '', danger = true, cancelLabel = 'إلغاء', okLabel, okClass = 'red', onOk, onCancel }) {
       document.getElementById('m-icon').textContent = icon;
       document.getElementById('m-title').textContent = title;
       document.getElementById('m-body').innerHTML = body;
       document.getElementById('m-extra').innerHTML = extra;
       document.getElementById('modal').className = 'modal' + (danger ? ' danger' : '');
       document.getElementById('m-btns').innerHTML = `
-    <button class="mcancel" onclick="closeModal()">${esc(cancelLabel)}</button>
+    <button class="mcancel" id="mcancel-btn">${esc(cancelLabel)}</button>
     ${okLabel ? `<button class="mok ${okClass}" id="mok-btn">${esc(okLabel)}</button>` : ''}`;
+      
+      document.getElementById('mcancel-btn').onclick = () => { if (onCancel) onCancel(); closeModal(); };
       if (okLabel) document.getElementById('mok-btn').onclick = onOk;
       document.getElementById('moverlay').classList.add('show');
     }
@@ -2012,13 +2014,33 @@
       const qty = parseFloat(document.getElementById('f-ast-qty').value) || 1;
       const desc = document.getElementById('f-desc').value.trim();
       const date = document.getElementById('f-date').value || today();
+
       if (!cat) { toast('أضف فئة أصول أولاً', 'err'); return; }
       if (!name) { toast('أدخل اسم الأصل', 'err'); return; }
       if (!price || price <= 0) { toast('أدخل سعر الشراء', 'err'); return; }
+
       const total = price * qty;
-      records.unshift({ id: uid(), type: 'expense', category: 'شراء أصول', amount: total, description: `شراء: ${name}`, date });
-      assets.unshift({ id: uid(), name, category: cat, buyPrice: price, qty, totalCost: total, currentValue: total, date, note: desc });
-      await save(); toast('تم تسجيل الأصل ✓', 'ok');
+
+      openModal({
+        icon: '💰', title: 'تأكيد العملية', danger: false,
+        body: `<p style="text-align:right">لقد سجلت شراء <strong>${esc(name)}</strong> بمبلغ <strong>${fmt(total)} جنيه</strong>.</p>
+               <p style="text-align:right;margin-top:10px;font-size:12px;color:var(--text2)">هل تريد خصم هذا المبلغ من رصيدك النقدي (تسجيله كمصروف)؟</p>`,
+        okLabel: 'نعم، خصم من النقدي', okClass: 'red',
+        cancelLabel: 'لا، إضافة للأصول فقط',
+        onOk: async () => {
+          records.unshift({ id: uid(), type: 'expense', category: 'شراء أصول', amount: total, description: `شراء: ${name}`, date });
+          finishAddAsset({ id: uid(), name, category: cat, buyPrice: price, qty, totalCost: total, currentValue: total, lastValue: total, date, note: desc });
+          closeModal();
+        },
+        onCancel: async () => {
+          finishAddAsset({ id: uid(), name, category: cat, buyPrice: price, qty, totalCost: total, currentValue: total, lastValue: total, date, note: desc });
+        }
+      });
+    }
+
+    async function finishAddAsset(newAsset) {
+      assets.unshift(newAsset);
+      await save(); toast('تم تسجيل الأصل بنجاح ✓', 'ok');
       document.getElementById('f-amount').value = '';
       document.getElementById('f-ast-name').value = '';
       document.getElementById('f-ast-qty').value = '1';
@@ -2037,7 +2059,7 @@
         onOk: async () => {
           const newVal = parseFloat(document.getElementById('rev-price').value);
           if (!newVal || newVal < 0) { toast('أدخل قيمة صحيحة', 'err'); return; }
-          assets = assets.map(a => a.id === id ? { ...a, currentValue: newVal } : a);
+          assets = assets.map(a => a.id === id ? { ...a, lastValue: (a.currentValue !== undefined ? a.currentValue : a.totalCost), currentValue: newVal } : a);
           await save(); closeModal(); render(); toast('تم تحديث التقييم ✓', 'ok');
         }
       });
@@ -2070,6 +2092,41 @@
         body: `هل تريد حذف <strong style="color:var(--amber)">"${esc(ast.name)}"</strong>؟`,
         okLabel: 'حذف',
         onOk: async () => { assets = assets.filter(a => a.id !== id); await save(); closeModal(); render(); toast('تم حذف الأصل', 'warn'); }
+      });
+    }
+
+    function revalueCategoryDialog() {
+      const cats = [...new Set(assets.map(a => a.category))];
+      if (cats.length === 0) return;
+
+      openModal({
+        icon: '⚖', title: 'إعادة تقييم فئة', danger: false,
+        body: `
+          <div style="text-align:right">
+            <p style="font-size:12px;color:var(--text2);margin-bottom:12px">تحديث قيمة كافة الأصول في هذه الفئة بناءً على سعر الوحدة الحالي (مثلاً سعر جرام الذهب اليوم أو سعر السهم).</p>
+            <div style="margin-bottom:10px">${MLBL('اختر الفئة')}<select id="rv-cat" style="${MIS}">${cats.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('')}</select></div>
+            <div style="margin-bottom:10px">${MLBL('سعر الوحدة اليوم (جنيه)')}<input id="rv-price" type="number" step="0.01" placeholder="0.00" style="${MIS}"/></div>
+          </div>`,
+        okLabel: 'تحديث كافة الأصول', okClass: 'green',
+        onOk: async () => {
+          const cat = document.getElementById('rv-cat').value;
+          const unitPrice = parseFloat(document.getElementById('rv-price').value);
+          if (!cat || isNaN(unitPrice) || unitPrice < 0) { toast('أدخل سعراً صحيحاً', 'err'); return; }
+          
+          assets = assets.map(a => {
+            if (a.category === cat) {
+              const newVal = a.qty * unitPrice;
+              return {
+                ...a,
+                lastValue: (a.currentValue !== undefined ? a.currentValue : a.totalCost),
+                currentValue: newVal
+              };
+            }
+            return a;
+          });
+          
+          await save(); closeModal(); render(); toast(`تم تحديث كافة أصول فئة "${cat}" بناءً على سعر ${fmt(unitPrice)} للوحدة ✓`, 'ok');
+        }
       });
     }
 
@@ -2328,24 +2385,40 @@
       <div class="cl">الرصيد النقدي</div>
       <div class="cv" style="color:${bal >= 0 ? 'var(--green)' : 'var(--red)'}">${fmt(bal)}</div>
     </div>
+    <div class="card" style="border-color:rgba(255,77,109,.15)">
+      <div class="cl">إجمالي المصروفات</div>
+      <div class="cv" style="color:var(--red)">${fmt(exp)}</div>
+    </div>
     <div class="card" style="border-color:rgba(255,179,64,.15)">
       <div class="cl">قيمة الأصول</div>
       <div class="cv" style="color:var(--amber)">${fmt(astVal)}</div>
-      <div class="cs">${assets.length} أصل</div>
-    </div>
-    <div class="card" style="border-color:rgba(0,214,143,.12)">
-      <div class="cl">الدخل التراكمي</div>
-      <div class="cv" style="color:var(--green)">${fmt(inc)}</div>
-    </div>
-    <div class="card" style="border-color:rgba(255,77,109,.12)">
-      <div class="cl">المصروف التراكمي</div>
-      <div class="cv" style="color:var(--red)">${fmt(exp)}</div>
+      <div class="cs">${assets.length} أصل في ${astCatList.length} فئات</div>
     </div>
   </div>
 
-  <div class="sec"><div class="sec-h"><span class="sec-icon">📉</span> المصروفات حسب الفئة</div><div>${bars(expC, 'var(--red)', mE)}</div></div>
-  <div class="sec"><div class="sec-h"><span class="sec-icon">📈</span> الإيرادات حسب الفئة</div><div>${bars(incC, 'var(--green)', mI)}</div></div>
-  <div class="sec"><div class="sec-h"><span class="sec-icon">🏦</span> الأصول حسب الفئة</div><div>${bars(astCatList, 'var(--amber)', mA)}</div></div>`;
+  <div class="sec">
+    <div class="sec-h"><span class="sec-icon">🏦</span> الأصول حسب الفئات</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      ${astCatList.length === 0 ? `<div class="empty" style="grid-column: span 2">لا توجد أصول</div>` : astCatList.map(([cat, val]) => {
+        const catAssets = assets.filter(a => a.category === cat);
+        const count = catAssets.length;
+        const totalUnits = catAssets.reduce((s, a) => s + a.qty, 0);
+        const avgPrice = totalUnits > 0 ? (val / totalUnits) : 0;
+        return `
+        <div style="background:var(--surface2);padding:14px;border-radius:12px;border:1px solid var(--border)">
+          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">${esc(cat)}</div>
+          <div style="font-size:16px;color:var(--amber);font-weight:900">${fmt(val)}</div>
+          <div style="font-size:10px;color:var(--dim);margin-top:4px">
+            <div>${totalUnits} وحدة · ${fmt(avgPrice)} للوحدة</div>
+            <div style="margin-top:2px;opacity:0.7">${count} أصول</div>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+  </div>
+
+  <div class="sec"><div class="sec-h"><span class="sec-icon">�</span> المصروفات حسب الفئة</div><div>${bars(expC, 'var(--red)', mE)}</div></div>
+  <div class="sec"><div class="sec-h"><span class="sec-icon">📈</span> الإيرادات حسب الفئة</div><div>${bars(incC, 'var(--green)', mI)}</div></div>`;
     }
 
     // ══ TAB: ADD ═══════════════════════════════════════════════════════
@@ -2386,17 +2459,30 @@
     function rAssets() {
       if (assets.length === 0) return `<div class="sec"><div class="sec-h">محفظة الأصول</div><div class="empty"><div class="empty-i">—</div>لا توجد أصول حالياً</div></div>`;
       return `<div class="sec">
-    <div class="sec-h"><span class="sec-icon">🏦</span> محفظة الأصول (${assets.length})</div>
+    <div class="sec-h" style="display:flex;justify-content:space-between;align-items:center">
+      <span><span class="sec-icon">🏦</span> محفظة الأصول (${assets.length})</span>
+      <button onclick="revalueCategoryDialog()" style="background:var(--amber-dim);color:var(--amber);border:1px solid rgba(255,179,64,0.2);padding:4px 10px;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer">⚖ تقييم الفئة بالكامل</button>
+    </div>
     <div>${assets.map(a => {
         const cVal = a.currentValue !== undefined ? a.currentValue : a.totalCost;
-        const diff = cVal - a.totalCost;
-        const diffBadge = diff > 0 ? `<span class="bdg bi">▲ +${fmt(diff)}</span>` : diff < 0 ? `<span class="bdg be">▼ ${fmt(diff)}</span>` : '';
+        const lastVal = a.lastValue !== undefined ? a.lastValue : cVal;
+
+        const totalDiff = cVal - a.totalCost;
+        const recentDiff = cVal - lastVal;
+
+        const totalP = ((totalDiff / a.totalCost) * 100).toFixed(1);
+        const recentP = lastVal > 0 ? ((recentDiff / lastVal) * 100).toFixed(1) : 0;
+
+        const totalBadge = totalDiff > 0 ? `<span class="bdg bi">▲ +${fmt(totalDiff)} (+${totalP}%)</span>` : totalDiff < 0 ? `<span class="bdg be">▼ ${fmt(totalDiff)} (${totalP}%)</span>` : '';
+        const recentBadge = recentDiff > 0 ? `<span class="bdg bi" style="background:var(--blue-dim);color:var(--blue);border-color:var(--blue-dim)">السابق ▲ +${fmt(recentDiff)} (+${recentP}%)</span>` : recentDiff < 0 ? `<span class="bdg be" style="background:var(--purple-dim);color:var(--purple);border-color:var(--purple-dim)">السابق ▼ ${fmt(recentDiff)} (${recentP}%)</span>` : '';
+
         return `<div class="ast">
         <div class="ast-chip">$</div>
         <div class="ast-inf">
-          <div class="ast-name">${esc(a.name)} <span class="bdg bs">${esc(a.category)}</span> ${diffBadge}</div>
-          <div class="ast-meta">الكمية: ${a.qty} · التكلفة الأصلية: ${fmt(a.totalCost)} جنيه</div>
-          <div class="ast-meta">تاريخ الشراء: ${a.date}${a.note ? ` · ${esc(a.note)}` : ''}</div>
+          <div class="ast-name">${esc(a.name)} <span class="bdg bs">${esc(a.category)}</span></div>
+          <div style="display:flex;gap:6px;margin-top:4px;flex-wrap:wrap">${totalBadge} ${recentBadge}</div>
+          <div class="ast-meta">الكمية: ${a.qty} · التكلفة: ${fmt(a.totalCost)}</div>
+          <div class="ast-meta">الشراء: ${a.date}${a.note ? ` · ${esc(a.note)}` : ''}</div>
           <div class="ast-btns">
             <button class="ast-btn ast-revalue" onclick="revalueAsset('${a.id}')">⚖ تقييم</button>
             <button class="ast-btn ast-sell" onclick="sellAsset('${a.id}')">تسييل</button>
@@ -2405,7 +2491,7 @@
         </div>
         <div class="ast-val">
           <span class="ast-val-lbl">القيمة الحالية</span>
-          <div class="ast-val-num" style="color:${diff >= 0 ? 'var(--green)' : 'var(--red)'}">${fmt(cVal)}</div>
+          <div class="ast-val-num" style="color:${totalDiff >= 0 ? 'var(--green)' : 'var(--red)'}">${fmt(cVal)}</div>
         </div>
       </div>`;
       }).join('')}</div>
@@ -2421,15 +2507,15 @@
         return true;
       });
       return `
-  <div class="flts">
+        <div class="flts">
     <div class="flt-group"><span class="flt-lbl">النوع</span><select class="fsel" onchange="filterType=this.value;render()"><option value="all" ${filterType === 'all' ? 'selected' : ''}>الكل</option><option value="income" ${filterType === 'income' ? 'selected' : ''}>دخل</option><option value="expense" ${filterType === 'expense' ? 'selected' : ''}>مصروف</option></select></div>
     <div class="flt-group"><span class="flt-lbl">من</span><input type="date" class="fsel" value="${filterFrom}" onchange="filterFrom=this.value;render()"/></div>
     <div class="flt-group"><span class="flt-lbl">إلى</span><input type="date" class="fsel" value="${filterTo}" onchange="filterTo=this.value;render()"/></div>
     ${(filterType !== 'all' || filterFrom || filterTo) ? `<button class="fclr" onclick="filterType='all';filterFrom='';filterTo='';render()">إعادة ضبط</button>` : ''}
   </div>
-  <div class="sec">
-    <div class="sec-h"><span class="sec-icon">≡</span> السجلات (${filtered.length})</div>
-    <div>${filtered.length === 0
+        <div class="sec">
+          <div class="sec-h"><span class="sec-icon">≡</span> السجلات (${filtered.length})</div>
+          <div>${filtered.length === 0
           ? `<div class="empty"><div class="empty-i">—</div>لا توجد سجلات مطابقة</div>`
           : filtered.map(r => `<div class="tx">
         <div class="tx-chip ${r.type === 'income' ? 'inc' : 'exp'}">${r.type === 'income' ? '+' : '−'}</div>
@@ -2444,15 +2530,15 @@
         </div>
         <div class="tx-amt" style="color:${r.type === 'income' ? 'var(--green)' : 'var(--red)'}">${r.type === 'income' ? '+' : '−'}${fmt(r.amount)}</div>
       </div>`).join('')}
-    </div>
-  </div>`;
+          </div>
+        </div>`;
     }
 
     // ══ TAB: CATEGORIES ════════════════════════════════════════════════
     function rCategories() {
       const list = categories[catTab] || [];
       return `
-  <div class="csc">
+          <div class="csc">
     <div class="ct">إدارة الفئات</div>
     <div class="csb">تخصيص بنود الدخل والمصروفات والأصول</div>
     <div class="ctgl">
@@ -2547,7 +2633,7 @@
       const expBars = topExp.length === 0
         ? `<div class="empty"><div class="empty-i">—</div>لا مصروفات</div>`
         : topExp.map(([c, a]) => `
-      <div class="br">
+        <div class="br">
         <div class="br-top"><span class="br-cat">${esc(c)}</span><span style="color:var(--red);font-weight:700;font-size:12px">${fmt(a)}</span></div>
         <div class="bt"><div class="bf" style="background:var(--red);width:${(a / maxExp * 100).toFixed(1)}%"></div></div>
       </div>`).join('');
@@ -2555,7 +2641,7 @@
       const incBars = topInc.length === 0
         ? `<div class="empty"><div class="empty-i">—</div>لا دخل</div>`
         : topInc.map(([c, a]) => `
-      <div class="br">
+        <div class="br">
         <div class="br-top"><span class="br-cat">${esc(c)}</span><span style="color:var(--green);font-weight:700;font-size:12px">${fmt(a)}</span></div>
         <div class="bt"><div class="bf" style="background:var(--green);width:${(a / maxInc * 100).toFixed(1)}%"></div></div>
       </div>`).join('');
@@ -2564,7 +2650,7 @@
       const prevLabel = prev ? `مقارنةً بـ ${monthName(prevMonth)}` : 'لا يوجد شهر سابق للمقارنة';
 
       return `
-  <div style="margin-bottom:12px">
+        <div style="margin-bottom:12px">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
       <div style="font-weight:900;font-size:16px">📅 التقرير الشهري</div>
       <select class="fsel" style="width:auto;min-width:150px" onchange="window._selMonth=this.value;render()">
@@ -2602,7 +2688,7 @@
     </div>
 
     <!-- مؤشر الادخار -->
-    ${cur.inc > 0 ? `
+        ${cur.inc > 0 ? `
     <div class="sec" style="margin-bottom:12px">
       <div class="sec-h">نسبة الادخار من الدخل</div>
       <div style="padding:14px 15px">
@@ -2616,7 +2702,8 @@
           <div class="bf" style="background:${cur.bal >= 0 ? 'var(--green)' : 'var(--red)'};width:${Math.min(100, Math.abs(cur.exp / cur.inc * 100)).toFixed(1)}%;border-radius:8px"></div>
         </div>
       </div>
-    </div>` : ''}
+    </div>` : ''
+        }
 
     <!-- تفاصيل المصروف والدخل -->
     <div class="sec" style="margin-bottom:12px">
