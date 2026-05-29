@@ -565,8 +565,7 @@ async function save(){
   lsSet('fin_records', records);
   lsSet('fin_cats',    categories);
   lsSet('fin_assets',  assets);
-  // نشغل مزامنة صامتة في الخلفية بعد أي تعديل (بدون انتظار)
-  if(cloudStatus === 'synced') scheduleAutoSync();
+  // المزامنة يدوية فقط عبر زر المزامنة — لا auto-sync بعد كل إضافة
 }
 
 function scheduleAutoSync(){
@@ -696,27 +695,7 @@ async function doSync(isManual=false){
       }
     }
 
-    // ← لو الجهاز ده جديد (بياناته فاضية) وفي ملف على الدرايف — اسحب منه
-    const localIsEmpty = records.length === 0 && assets.length === 0;
-    if(localIsEmpty && driveFileId){
-      const res = await fetch(
-        `https://www.googleapis.com/drive/v3/files/${driveFileId}?alt=media`,
-        { headers:{ 'Authorization':`Bearer ${accessToken}` } }
-      );
-      if(res.ok){
-        const data = await res.json();
-        if(data.records)    records    = data.records;
-        if(data.categories) categories = data.categories;
-        if(data.assets)     assets     = data.assets;
-        lsSet('fin_records', records);
-        lsSet('fin_cats',    categories);
-        lsSet('fin_assets',  assets);
-        render();
-        if(isManual) toast('تم استرجاع البيانات من جوجل درايف ✓','ok');
-      }
-    }
-
-    // ← ارفع البيانات الحالية للدرايف
+    // ← ارفع البيانات الحالية للدرايف فقط (السحب يتم عبر زر الاستعادة فقط)
     const payload = buildPayload();
     const blob    = new Blob([payload], {type:'application/json'});
 
