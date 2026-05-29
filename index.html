@@ -512,7 +512,7 @@ select{appearance:none;-webkit-appearance:none}
 const CLIENT_ID = '852022041751-ctqbl31n6nj7bfp62klmfmi7m4baiqr4.apps.googleusercontent.com';
 const API_KEY = 'AIzaSyDq_4qltIrcXYCvP8iXeNkPlj5FSZ6CPY0';
 const DISCOVERY_DOC = 'https://www.googleapis.com/discovery/v1/apis/drive/v3/rest';
-const SCOPES = 'https://www.googleapis.com/auth/drive.file';
+const SCOPES = 'https://www.googleapis.com/auth/drive.appdata';
 const DRIVE_FILE_NAME = 'mizaniyati_data.json'; // ← ملف JSON صغير بدل Excel الثقيل
 
 let gapiInited = false;
@@ -602,7 +602,8 @@ async function initData(){
     categories = lsGet('fin_cats',    { income:[], expense:[], asset:[] });
     assets     = lsGet('fin_assets',  []);
     appPin     = lsGet('app_pin',     "");
-    driveFileId= lsGet('drive_file_id', null);
+    driveFileId= null; // دايماً ابحث في appDataFolder من جديد
+    lsSet('drive_file_id', null);
     lastSyncTime = lsGet('last_sync_time', null);
   }catch(e){
     records=[]; categories={income:[],expense:[],asset:[]}; assets=[]; appPin="";
@@ -706,19 +707,20 @@ async function doSync(isManual=false){
     const accessToken = gapi.client.getToken()?.access_token;
     if(!accessToken){ throw new Error('no_token'); }
 
-    // ← لو مافيش fileId — ابحث في الدرايف أولاً
+    // ← ابحث في appData folder (مخصوص للتطبيق — نفس الملف على كل الأجهزة)
     if(!driveFileId){
-      const listResp = await gapi.client.drive.files.list({
-        q:`name='${DRIVE_FILE_NAME}' and trashed=false`, fields:'files(id)'
-      });
-      const files = listResp.result.files;
-      if(files && files.length > 0){
-        driveFileId = files[0].id;
+      const listResp = await fetch(
+        `https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=name='${DRIVE_FILE_NAME}'&fields=files(id,modifiedTime)`,
+        { headers:{ 'Authorization':`Bearer ${accessToken}` } }
+      );
+      const listData = await listResp.json();
+      if(listData.files && listData.files.length > 0){
+        driveFileId = listData.files[0].id;
         lsSet('drive_file_id', driveFileId);
       }
     }
 
-    // ← اجيب البيانات من الدرايف الأول وقارن التاريخ
+    // ← لو في ملف موجود — اقرأه وقارن بالبيانات المحلية
     if(driveFileId){
       const res = await fetch(
         `https://www.googleapis.com/drive/v3/files/${driveFileId}?alt=media`,
@@ -728,8 +730,8 @@ async function doSync(isManual=false){
         const driveData = await res.json();
         const driveTime = driveData.exportedAt ? new Date(driveData.exportedAt).getTime() : 0;
         const localTime = lastSyncTime || 0;
-        // لو الدرايف أحدث من آخر مزامنة محلية — اجيب منه
         if(driveTime > localTime){
+          // الدرايف أحدث — اجيب منه
           if(driveData.records)    records    = driveData.records;
           if(driveData.categories) categories = driveData.categories;
           if(driveData.assets)     assets     = driveData.assets;
@@ -737,25 +739,25 @@ async function doSync(isManual=false){
           lsSet('fin_cats',    categories);
           lsSet('fin_assets',  assets);
           render();
-          if(isManual) toast('تم تحديث البيانات من جوجل درايف ✓','ok');
-          // بعد السحب ارفع بنفس البيانات عشان يتزامن الوقت
+          if(isManual) toast('تم تحديث البيانات من الدرايف ✓','ok');
         }
       }
     }
 
-    // ← ارفع البيانات الحالية للدرايف
+    // ← ارفع البيانات الحالية
     const payload = buildPayload();
     const blob    = new Blob([payload], {type:'application/json'});
 
     if(driveFileId){
+      // تحديث ملف موجود
       const res = await fetch(
         `https://www.googleapis.com/upload/drive/v3/files/${driveFileId}?uploadType=media`,
         { method:'PATCH', headers:{ 'Authorization':`Bearer ${accessToken}`, 'Content-Type':'application/json' }, body: blob }
       );
       if(!res.ok) throw new Error('Update failed: '+res.status);
     } else {
-      // أنشئ ملف جديد
-      const meta = { name: DRIVE_FILE_NAME, mimeType:'application/json' };
+      // إنشاء ملف جديد في appDataFolder
+      const meta = { name: DRIVE_FILE_NAME, parents: ['appDataFolder'] };
       const form = new FormData();
       form.append('metadata', new Blob([JSON.stringify(meta)],{type:'application/json'}));
       form.append('file', blob);
@@ -772,10 +774,10 @@ async function doSync(isManual=false){
     lsSet('last_sync_time', lastSyncTime);
     lsSet('google_logged_in', true);
     cloudStatus = 'synced'; updateCloudUI();
-    if(isManual) toast('تمت المزامنة مع جوجل درايف ✓','ok');
+    if(isManual) toast('تمت المزامنة ✓','ok');
   } catch(err){
     console.error('Sync error:', err);
-    if(err.message === 'no_token' || (err.status === 401)){
+    if(err.message === 'no_token' || err.status === 401){
       gapi.client.setToken(null);
     }
     cloudStatus = 'error'; updateCloudUI();
@@ -789,14 +791,15 @@ async function restoreFromDrive(){
   const doRestore = async () => {
     try{
       const accessToken = gapi.client.getToken().access_token;
-      // لو مافيش fileId مخزّن — ابحث في الدرايف بالاسم
+      // لو مافيش fileId مخزّن — ابحث في appDataFolder
       if(!driveFileId){
-        const listResp = await gapi.client.drive.files.list({
-          q:`name='${DRIVE_FILE_NAME}' and trashed=false`, fields:'files(id)'
-        });
-        const files = listResp.result.files;
-        if(!files || files.length === 0){ toast('لا توجد بيانات محفوظة في جوجل درايف','warn'); return; }
-        driveFileId = files[0].id;
+        const listResp = await fetch(
+          `https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=name='${DRIVE_FILE_NAME}'&fields=files(id)`,
+          { headers:{ 'Authorization':`Bearer ${accessToken}` } }
+        );
+        const listData = await listResp.json();
+        if(!listData.files || listData.files.length === 0){ toast('لا توجد بيانات محفوظة في جوجل درايف','warn'); return; }
+        driveFileId = listData.files[0].id;
         lsSet('drive_file_id', driveFileId);
       }
       const res = await fetch(
