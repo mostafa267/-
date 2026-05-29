@@ -636,11 +636,28 @@ function updateCloudUI(){
   }
 }
 
+function requestGoogleToken(promptVal, onSuccess, onFail){
+  tokenClient.callback = async (resp) => {
+    if(resp.error){
+      // لو access_denied أو interaction_required — جرب بـ consent صريح
+      if((resp.error === 'access_denied' || resp.error === 'interaction_required') && promptVal !== 'consent'){
+        requestGoogleToken('consent', onSuccess, onFail);
+        return;
+      }
+      if(onFail) onFail(resp.error);
+      return;
+    }
+    gapi.client.setToken(resp);
+    if(onSuccess) await onSuccess();
+  };
+  tokenClient.requestAccessToken({prompt: promptVal});
+}
+
 function triggerCloudSync(isManual=false){
   if(!navigator.onLine){ if(isManual) toast('لا يوجد اتصال بالإنترنت','err'); return; }
   if(!gapiInited||!gisInited){ if(isManual) toast('جاري تهيئة مكتبات جوجل...','warn'); return; }
 
-  // لو عندنا token صالح — ابدأ المزامنة مباشرة بدون نافذة جوجل
+  // لو عندنا token صالح — ابدأ المزامنة مباشرة
   const existingToken = gapi.client.getToken();
   if(existingToken && existingToken.access_token){
     cloudStatus = 'syncing'; updateCloudUI();
@@ -648,26 +665,18 @@ function triggerCloudSync(isManual=false){
     return;
   }
 
-  // أول مرة فقط: اطلب إذن المستخدم
-  tokenClient.callback = async (resp) => {
-    if(resp.error){
-      // لو رفض أو أغلق النافذة بدون login — مش هنظهر خطأ للمزامنة التلقائية
-      if(isManual){ cloudStatus='error'; updateCloudUI(); toast('فشل تسجيل الدخول لجوجل','err'); }
-      else { cloudStatus='local'; updateCloudUI(); }
-      return;
-    }
-    gapi.client.setToken(resp);
+  const onSuccess = async () => {
     cloudStatus = 'syncing'; updateCloudUI();
     await doSync(isManual);
   };
+  const onFail = (err) => {
+    if(isManual){ cloudStatus='error'; updateCloudUI(); toast('فشل تسجيل الدخول لجوجل','err'); }
+    else { cloudStatus='local'; updateCloudUI(); }
+  };
 
-  // أول مرة: اطلب بـ consent / بعدها بدون prompt (صامت)
+  // على الموبايل prompt:none بيديك 403 — استخدم '' دايماً (جوجل تقرر هي)
   const hasLoggedInBefore = lsGet('google_logged_in', false);
-  if(!hasLoggedInBefore){
-    tokenClient.requestAccessToken({prompt:'consent'});
-  } else {
-    tokenClient.requestAccessToken({prompt:'none'});
-  }
+  requestGoogleToken(hasLoggedInBefore ? '' : 'consent', onSuccess, onFail);
 }
 
 async function doSync(isManual=false){
@@ -785,12 +794,10 @@ async function restoreFromDrive(){
   if(existingToken && existingToken.access_token){
     await doRestore(); return;
   }
-  tokenClient.callback = async(resp)=>{
-    if(resp.error){ toast('فشل تسجيل الدخول','err'); return; }
-    gapi.client.setToken(resp);
-    await doRestore();
-  };
-  tokenClient.requestAccessToken({prompt:'consent'});
+  requestGoogleToken('consent',
+    async () => { await doRestore(); },
+    () => { toast('فشل تسجيل الدخول','err'); }
+  );
 }
 
 // مزامنة تلقائية عند الفتح لو سبق للمستخدم الموافقة على جوجل
@@ -807,14 +814,11 @@ async function autoSyncOnStartup(){
     await doSync(false);
     return;
   }
-  // حاول تجديد التوكن بصمت (بدون نافذة)
-  tokenClient.callback = async(resp)=>{
-    if(resp.error){ cloudStatus='local'; updateCloudUI(); return; }
-    gapi.client.setToken(resp);
-    cloudStatus='syncing'; updateCloudUI();
-    await doSync(false);
-  };
-  tokenClient.requestAccessToken({prompt:'none'});
+  // حاول تجديد التوكن — لو فشل بصمت لا تزعج المستخدم
+  requestGoogleToken('',
+    async () => { cloudStatus='syncing'; updateCloudUI(); await doSync(false); },
+    () => { cloudStatus='local'; updateCloudUI(); }
+  );
 }
 
 // ══ SECURITY ═══════════════════════════════════════════════════════
