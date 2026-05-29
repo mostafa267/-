@@ -1511,10 +1511,10 @@
         </button>
         <button class="saction"
           style="background:var(--purple-dim);color:var(--purple);border:1px solid rgba(167,139,250,.2)"
-          onclick="exportBackup()">💾 نسخة احتياطية (تصدير)</button>
+          onclick="exportBackup()">💾 نسخة احتياطية (JSON)</button>
         <button class="saction" style="background:var(--surface2);color:var(--text2);border:1px solid var(--border)"
-          onclick="triggerImport()">📂 استعادة نسخة (استيراد)</button>
-        <button class="saction sact-export" onclick="exportExcel()">⬇ تصدير Excel</button>
+          onclick="unifiedImportTrigger()">📂 استعادة (JSON أو Excel)</button>
+        <button class="saction sact-export" onclick="exportExcel()">⬇ تصدير Excel للتقارير</button>
         <button class="saction sact-import" onclick="document.getElementById('imp-file').click()">⬆ استيراد
           Excel</button>
       </div>
@@ -1540,8 +1540,8 @@
             <button class="hdr-btn"
               style="background:var(--purple-dim);color:var(--purple);border:1px solid rgba(167,139,250,.2)"
               onclick="exportBackup()">💾 نسخة</button>
-            <button class="hdr-btn btn-export" onclick="exportExcel()">⬇ Excel</button>
-            <button class="hdr-btn btn-import" onclick="document.getElementById('imp-file').click()">⬆ استيراد</button>
+            <button class="hdr-btn" style="background:var(--surface2);color:var(--text2);border:1px solid var(--border)"
+              onclick="unifiedImportTrigger()">📂 استعادة</button>
           </div>
         </div>
       </div>
@@ -1800,60 +1800,116 @@
       const data = {
         records, categories, assets, appPin,
         exportedAt: Date.now(),
-        version: '1.0'
+        version: '1.2'
       };
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `mizaniyati_backup_${new Date().toISOString().split('T')[0]}.json`;
+      a.download = `mizani_backup_${new Date().toISOString().split('T')[0]}.json`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      toast('تم تصدير النسخة الاحتياطية بنجاح ✓', 'ok');
+      toast('تم تصدير نسخة JSON بنجاح ✓', 'ok');
     }
 
-    function triggerImport() {
+    function unifiedImportTrigger() {
       const input = document.createElement('input');
       input.type = 'file';
-      input.accept = '.json';
+      input.accept = '.json,.xlsx,.xls';
       input.onchange = (e) => {
         const file = e.target.files[0];
         if (!file) return;
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          try {
-            const data = JSON.parse(e.target.result);
-            if (!data.records || !data.categories) throw new Error('Invalid format');
-
-            openModal({
-              icon: '⚠️', title: 'تأكيد الاستعادة', body: 'استيراد هذه النسخة سيقوم بمسح كافة البيانات الحالية واستبدالها. هل أنت متأكد؟',
-              okLabel: 'استيراد واستبدال',
-              onOk: async () => {
-                records = data.records;
-                categories = data.categories;
-                assets = data.assets || [];
-                if (data.appPin) appPin = data.appPin;
-
-                lsSet('fin_records', records);
-                lsSet('fin_cats', categories);
-                lsSet('fin_assets', assets);
-                if (appPin) lsSet('app_pin', appPin);
-
-                closeModal();
-                toast('تم استيراد البيانات بنجاح ✓', 'ok');
-                render();
-                if (isCloudEnabled) uploadToFirebase();
-              }
-            });
-          } catch (err) {
-            toast('فشل الاستيراد: ملف غير صحيح', 'err');
-          }
-        };
-        reader.readAsText(file);
+        if (file.name.toLowerCase().endsWith('.json')) handleImportJSON(file);
+        else handleImportExcel(file);
       };
       input.click();
+    }
+
+    function handleImportJSON(file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const data = JSON.parse(e.target.result);
+          if (!data.records || !data.categories) throw new Error('Format');
+          openModal({
+            icon: '⚠️', title: 'تأكيد استعادة JSON', body: 'سيتم استبدال كافة البيانات الحالية بالنسخة الاحتياطية. هل أنت متأكد؟',
+            okLabel: 'استيراد واستبدال', onOk: async () => {
+              records = data.records; categories = data.categories; assets = data.assets || [];
+              if (data.appPin) appPin = data.appPin;
+              saveAllLocal(); closeModal(); render(); toast('تمت الاستعادة بنجاح ✓', 'ok');
+              if (isCloudEnabled) uploadToFirebase();
+            }
+          });
+        } catch (err) { toast('فشل الاستيراد: ملف JSON غير صحيح', 'err'); }
+      };
+      reader.readAsText(file);
+    }
+
+    function handleImportExcel(file) {
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        try {
+          const data = new Uint8Array(e.target.result);
+          const wb = XLSX.read(data, { type: 'array' });
+          let importedRecs = [], importedAssets = [];
+
+          const fixDate = (v) => {
+            if (!v) return today();
+            if (typeof v === 'number') return new Date((v - 25569) * 86400 * 1000).toISOString().split('T')[0];
+            return String(v).trim();
+          };
+
+          if (wb.SheetNames.includes('الدخل')) {
+            const rows = XLSX.utils.sheet_to_json(wb.Sheets['الدخل'], { header: 1 });
+            rows.slice(1).forEach(r => {
+              if (r[1] && r[2] && !isNaN(r[2]) && String(r[1]).trim() !== 'الإجمالي') {
+                importedRecs.push({ id: uid(), type: 'income', date: fixDate(r[0]), category: String(r[1]).trim(), amount: parseFloat(r[2]), description: r[3] || '' });
+              }
+            });
+          }
+          if (wb.SheetNames.includes('المصروف')) {
+            const rows = XLSX.utils.sheet_to_json(wb.Sheets['المصروف'], { header: 1 });
+            rows.slice(1).forEach(r => {
+              if (r[1] && r[2] && !isNaN(r[2]) && String(r[1]).trim() !== 'الإجمالي') {
+                importedRecs.push({ id: uid(), type: 'expense', date: fixDate(r[0]), category: String(r[1]).trim(), amount: parseFloat(r[2]), description: r[3] || '' });
+              }
+            });
+          }
+          if (wb.SheetNames.includes('الأصول')) {
+            const rows = XLSX.utils.sheet_to_json(wb.Sheets['الأصول'], { header: 1 });
+            rows.slice(1).forEach(r => {
+              if (r[1] && r[5] && !isNaN(r[5]) && String(r[5]).trim() !== 'القيمة الإجمالية') {
+                const tc = parseFloat(r[5]); const cv = r[6] && !isNaN(r[6]) ? parseFloat(r[6]) : tc;
+                importedAssets.push({ id: uid(), date: fixDate(r[0]), name: String(r[1]).trim(), category: String(r[2] || '').trim(), buyPrice: parseFloat(r[3]) || 0, qty: parseFloat(r[4]) || 1, totalCost: tc, currentValue: cv, note: r[7] || '' });
+              }
+            });
+          }
+
+          if (importedRecs.length === 0 && importedAssets.length === 0) {
+            toast('لم يتم العثور على بيانات صالحة في ملف Excel', 'warn'); return;
+          }
+
+          openModal({
+            icon: '📊', title: 'استيراد من Excel', body: `تم العثور على ${importedRecs.length} حركة و ${importedAssets.length} أصل. هل تريد دمجها مع بياناتك الحالية؟`,
+            okLabel: 'دمج البيانات', onOk: async () => {
+              records = [...importedRecs, ...records].sort((a, b) => b.date.localeCompare(a.date));
+              assets = [...importedAssets, ...assets];
+              saveAllLocal(); closeModal(); render(); toast('تم الدمج بنجاح ✓', 'ok');
+              if (isCloudEnabled) uploadToFirebase();
+            }
+          });
+        } catch (err) { console.error(err); toast('خطأ في قراءة ملف Excel', 'err'); }
+      };
+      reader.readAsArrayBuffer(file);
+    }
+
+    function saveAllLocal() {
+      lsSet('fin_records', records);
+      lsSet('fin_cats', categories);
+      lsSet('fin_assets', assets);
+      if (appPin) lsSet('app_pin', appPin);
     }
 
     // ══ SECURITY ═══════════════════════════════════════════════════════
@@ -2118,29 +2174,7 @@
       } catch (err) { toast('فشل التصدير', 'err'); }
     }
 
-    function importExcel(inp) {
-      const file = inp.files[0]; if (!file) return;
-      const reader = new FileReader();
-      reader.onload = async e => {
-        try {
-          const wb = XLSX.read(e.target.result, { type: 'binary' }); let imported = 0;
-          if (wb.SheetNames.includes('الدخل')) {
-            const rows = XLSX.utils.sheet_to_json(wb.Sheets['الدخل'], { header: 1 });
-            rows.slice(1).forEach(r => { if (r[0] && r[1] && r[2] && !isNaN(r[2]) && r[1] !== 'الإجمالي') { records.push({ id: uid(), type: 'income', date: String(r[0]), category: String(r[1]), amount: parseFloat(r[2]), description: r[3] || '' }); imported++; } });
-          }
-          if (wb.SheetNames.includes('المصروف')) {
-            const rows = XLSX.utils.sheet_to_json(wb.Sheets['المصروف'], { header: 1 });
-            rows.slice(1).forEach(r => { if (r[0] && r[1] && r[2] && !isNaN(r[2]) && r[1] !== 'الإجمالي') { records.push({ id: uid(), type: 'expense', date: String(r[0]), category: String(r[1]), amount: parseFloat(r[2]), description: r[3] || '' }); imported++; } });
-          }
-          if (wb.SheetNames.includes('الأصول')) {
-            const rows = XLSX.utils.sheet_to_json(wb.Sheets['الأصول'], { header: 1 });
-            rows.slice(1).forEach(r => { if (r[0] && r[1] && r[5] && !isNaN(r[5]) && r[4] !== 'القيمة الإجمالية') { const tc = parseFloat(r[5]); const cv = r[6] && !isNaN(r[6]) ? parseFloat(r[6]) : tc; assets.push({ id: uid(), date: String(r[0]), name: String(r[1]), category: String(r[2] || ''), buyPrice: parseFloat(r[3]) || 0, qty: parseFloat(r[4]) || 1, totalCost: tc, currentValue: cv, note: r[7] || '' }); imported++; } });
-          }
-          records.sort((a, b) => b.date.localeCompare(a.date)); await save(); render(); toast(`تم استيراد ${imported} عنصر ✓`, 'ok');
-        } catch (err) { toast('خطأ في قراءة الملف', 'err'); }
-      };
-      reader.readAsBinaryString(file); inp.value = '';
-    }
+
 
     // ══ RENDER ═════════════════════════════════════════════════════════
     function render() {
