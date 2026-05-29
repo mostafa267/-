@@ -291,9 +291,9 @@
     }
 
     .btn-cloud {
-      background: var(--blue-dim);
-      color: var(--blue);
-      border: 1px solid rgba(77, 159, 255, .25)
+      background: var(--purple-dim);
+      color: var(--purple);
+      border: 1px solid rgba(167, 139, 250, .25)
     }
 
     .btn-cloud:active {
@@ -1509,6 +1509,11 @@
           <span id="sidebar-cloud-dot" class="cloud-dot warn"></span>
           <span id="sidebar-cloud-lbl">سحابة ميزانيتي (مغلق)</span>
         </button>
+        <button class="saction"
+          style="background:var(--purple-dim);color:var(--purple);border:1px solid rgba(167,139,250,.2)"
+          onclick="exportBackup()">💾 نسخة احتياطية (تصدير)</button>
+        <button class="saction" style="background:var(--surface2);color:var(--text2);border:1px solid var(--border)"
+          onclick="triggerImport()">📂 استعادة نسخة (استيراد)</button>
         <button class="saction sact-export" onclick="exportExcel()">⬇ تصدير Excel</button>
         <button class="saction sact-import" onclick="document.getElementById('imp-file').click()">⬆ استيراد
           Excel</button>
@@ -1532,6 +1537,9 @@
               <div id="mob-cloud-dot" class="sync-dot"></div>
               <span id="mob-cloud-lbl">السحابة</span>
             </button>
+            <button class="hdr-btn"
+              style="background:var(--purple-dim);color:var(--purple);border:1px solid rgba(167,139,250,.2)"
+              onclick="exportBackup()">💾 نسخة</button>
             <button class="hdr-btn btn-export" onclick="exportExcel()">⬇ Excel</button>
             <button class="hdr-btn btn-import" onclick="document.getElementById('imp-file').click()">⬆ استيراد</button>
           </div>
@@ -1620,11 +1628,11 @@
 
     function scheduleCloudUpload() {
       clearTimeout(window._uploadTimer);
-      window._uploadTimer = setTimeout(() => uploadToFirebase(), 1000);
+      window._uploadTimer = setTimeout(() => uploadToFirebase(), 1500);
     }
 
     async function initData() {
-      // مسح مخلفات النظام القديم (Google Drive) لتوفير مساحة
+      // تنظيف مخلفات الأنظمة القديمة
       cleanupOldSystemData();
 
       try {
@@ -1639,14 +1647,15 @@
       }
       document.getElementById('loading').style.display = 'none';
       checkSecurityInit();
-      // انتظر قليلاً لبدء الاتصال بالخادم
+      // تهيئة المزامنة السحابية
       setTimeout(initFirebaseSync, 1000);
     }
 
     function cleanupOldSystemData() {
+      // مسح مفاتيح جوجل درايف القديمة
       const oldKeys = ['drive_file_id', 'google_logged_in', 'last_sync_time_gdrive'];
       oldKeys.forEach(k => localStorage.removeItem(k));
-      // تنظيف السجلات من أي بيانات فارغة أو تالفة
+      // تنظيف السجلات من أي بيانات تالفة
       records = records.filter(r => r && r.id && r.amount);
     }
 
@@ -1658,12 +1667,12 @@
       auth.onAuthStateChanged(async (user) => {
         if (user) {
           firebaseUser = user;
-          // استماع للتغيرات في قاعدة البيانات
+          // الاستماع للتغيرات في قاعدة البيانات
           const dataRef = db.ref('users/' + user.uid + '/data');
           dataRef.on('value', (snapshot) => {
             const cloudData = snapshot.val();
             if (cloudData && cloudData.savedAt > (lastSyncTime || 0)) {
-              // السحابة أحدث
+              // السحابة أحدث — تحديث محلي
               records = cloudData.records || [];
               categories = cloudData.categories || { income: [], expense: [], asset: [] };
               assets = cloudData.assets || [];
@@ -1681,13 +1690,24 @@
             }
           });
         } else {
-          // تسجيل دخول مجهول للهواتف لتسهيل المزامنة بدون إيميل حالياً
-          // أو يمكن استخدام الـ PIN كجزء من المعرف
-          auth.signInAnonymously().catch(e => {
-            cloudStatus = 'error'; updateCloudUI();
-          });
+          // لم يتم تسجيل الدخول
+          cloudStatus = 'local';
+          updateCloudUI();
         }
       });
+    }
+
+    async function loginWithGoogle() {
+      const provider = new firebase.auth.GoogleAuthProvider();
+      try {
+        await auth.signInWithPopup(provider);
+        isCloudEnabled = true;
+        lsSet('cloud_enabled', true);
+        toast('تم تسجيل الدخول بنجاح ✓', 'ok');
+      } catch (e) {
+        console.error(e);
+        toast('فشل تسجيل الدخول', 'err');
+      }
     }
 
     async function uploadToFirebase() {
@@ -1697,7 +1717,6 @@
         savedAt: Date.now()
       };
       try {
-        // الاستبدال الكامل يضمن عدم وجود بيانات قديمة متراكمة في السحابة
         await db.ref('users/' + firebaseUser.uid + '/data').set(data);
         lastSyncTime = data.savedAt;
         lsSet('last_sync_time', lastSyncTime);
@@ -1710,17 +1729,22 @@
 
     function toggleCloudSync() {
       if (isCloudEnabled) {
-        isCloudEnabled = false;
-        lsSet('cloud_enabled', false);
-        cloudStatus = 'local';
-        toast('تم إيقاف المزامنة السحابية', 'warn');
+        openModal({
+          icon: '☁️', title: 'إيقاف السحابة', body: 'هل تريد إيقاف المزامنة السحابية؟ (سيبقى الملف على جهازك فقط)',
+          okLabel: 'إيقاف',
+          onOk: () => {
+            isCloudEnabled = false;
+            lsSet('cloud_enabled', false);
+            cloudStatus = 'local';
+            auth.signOut();
+            updateCloudUI();
+            closeModal();
+            toast('تم إيقاف المزامنة', 'warn');
+          }
+        });
       } else {
-        isCloudEnabled = true;
-        lsSet('cloud_enabled', true);
-        toast('جاري تفعيل السحابة...', 'ok');
-        initFirebaseSync();
+        loginWithGoogle();
       }
-      updateCloudUI();
     }
 
     function updateCloudUI() {
@@ -1754,7 +1778,69 @@
         if (dot1) dot1.style.background = 'var(--red)';
         if (dot2) dot2.className = 'cloud-dot err';
         if (lbl1) lbl1.textContent = 'فشل الاتصال';
+        if (lbl2) lbl2.textContent = 'خطأ في السحابة';
       }
+    }
+
+    // ══ BACKUP & RESTORE ═══════════════════════════════════════════════
+    function exportBackup() {
+      const data = {
+        records, categories, assets, appPin,
+        exportedAt: Date.now(),
+        version: '1.0'
+      };
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `mizaniyati_backup_${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast('تم تصدير النسخة الاحتياطية بنجاح ✓', 'ok');
+    }
+
+    function triggerImport() {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.json';
+      input.onchange = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          try {
+            const data = JSON.parse(e.target.result);
+            if (!data.records || !data.categories) throw new Error('Invalid format');
+
+            openModal({
+              icon: '⚠️', title: 'تأكيد الاستعادة', body: 'استيراد هذه النسخة سيقوم بمسح كافة البيانات الحالية واستبدالها. هل أنت متأكد؟',
+              okLabel: 'استيراد واستبدال',
+              onOk: async () => {
+                records = data.records;
+                categories = data.categories;
+                assets = data.assets || [];
+                if (data.appPin) appPin = data.appPin;
+
+                lsSet('fin_records', records);
+                lsSet('fin_cats', categories);
+                lsSet('fin_assets', assets);
+                if (appPin) lsSet('app_pin', appPin);
+
+                closeModal();
+                toast('تم استيراد البيانات بنجاح ✓', 'ok');
+                render();
+                if (isCloudEnabled) uploadToFirebase();
+              }
+            });
+          } catch (err) {
+            toast('فشل الاستيراد: ملف غير صحيح', 'err');
+          }
+        };
+        reader.readAsText(file);
+      };
+      input.click();
     }
 
     // ══ SECURITY ═══════════════════════════════════════════════════════
