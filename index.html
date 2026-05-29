@@ -466,6 +466,7 @@ select{appearance:none;-webkit-appearance:none}
         <span id="sidebar-cloud-dot" class="cloud-dot warn"></span>
         <span id="sidebar-cloud-lbl">مزامنة جوجل درايف</span>
       </button>
+      <button class="saction" style="background:var(--blue-dim);color:var(--blue);border:1px solid rgba(77,159,255,.2)" onclick="restoreFromDrive()">⬇ استعادة من الدرايف</button>
       <button class="saction sact-export" onclick="exportExcel()">⬇ تصدير Excel</button>
       <button class="saction sact-import" onclick="document.getElementById('imp-file').click()">⬆ استيراد Excel</button>
     </div>
@@ -485,6 +486,7 @@ select{appearance:none;-webkit-appearance:none}
             <div id="mob-cloud-dot" class="sync-dot"></div>
             <span id="mob-cloud-lbl">مزامنة</span>
           </button>
+          <button class="hdr-btn" style="background:var(--blue-dim);color:var(--blue);border:1px solid rgba(77,159,255,.2)" onclick="restoreFromDrive()">⬇ استعادة</button>
           <button class="hdr-btn btn-export" onclick="exportExcel()">⬇ Excel</button>
           <button class="hdr-btn btn-import" onclick="document.getElementById('imp-file').click()">⬆ استيراد</button>
         </div>
@@ -586,6 +588,8 @@ async function initData(){
   document.getElementById('loading').style.display='none';
   updateCloudUI();
   checkSecurityInit();
+  // مزامنة تلقائية عند الفتح لو المستخدم سبق ووافق على جوجل
+  setTimeout(autoSyncOnStartup, 1200);
 }
 
 // ══ CLOUD SYNC — JSON (حجم صغير جداً) ═════════════════════════════
@@ -668,21 +672,11 @@ function triggerCloudSync(isManual=false){
 
 async function doSync(isManual=false){
   try{
-    const payload = buildPayload();
-    const blob    = new Blob([payload], {type:'application/json'});
-    const tokenObj = gapi.client.getToken();
-    if(!tokenObj){ throw new Error('no_token'); }
-    const accessToken = tokenObj.access_token;
+    const accessToken = gapi.client.getToken()?.access_token;
+    if(!accessToken){ throw new Error('no_token'); }
 
-    if(driveFileId){
-      // ← تحديث الملف الموجود (PATCH) — مسار سريع وصغير
-      const res = await fetch(
-        `https://www.googleapis.com/upload/drive/v3/files/${driveFileId}?uploadType=media`,
-        { method:'PATCH', headers:{ 'Authorization':`Bearer ${accessToken}`, 'Content-Type':'application/json' }, body: blob }
-      );
-      if(!res.ok) throw new Error('Update failed: '+res.status);
-    } else {
-      // ← أول مزامنة: ابحث هل فيه ملف قديم أو أنشئ جديد
+    // ← لو مافيش fileId — ابحث في الدرايف أولاً
+    if(!driveFileId){
       const listResp = await gapi.client.drive.files.list({
         q:`name='${DRIVE_FILE_NAME}' and trashed=false`, fields:'files(id)'
       });
@@ -690,35 +684,61 @@ async function doSync(isManual=false){
       if(files && files.length > 0){
         driveFileId = files[0].id;
         lsSet('drive_file_id', driveFileId);
-        // حدّث الملف الموجود
-        await fetch(
-          `https://www.googleapis.com/upload/drive/v3/files/${driveFileId}?uploadType=media`,
-          { method:'PATCH', headers:{ 'Authorization':`Bearer ${accessToken}`, 'Content-Type':'application/json' }, body: blob }
-        );
-      } else {
-        // أنشئ ملف جديد
-        const meta = { name: DRIVE_FILE_NAME, mimeType:'application/json' };
-        const form = new FormData();
-        form.append('metadata', new Blob([JSON.stringify(meta)],{type:'application/json'}));
-        form.append('file', blob);
-        const res = await fetch(
-          'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',
-          { method:'POST', headers:{ 'Authorization':`Bearer ${accessToken}` }, body: form }
-        );
-        const data = await res.json();
-        driveFileId = data.id;
-        lsSet('drive_file_id', driveFileId);
       }
+    }
+
+    // ← لو الجهاز ده جديد (بياناته فاضية) وفي ملف على الدرايف — اسحب منه
+    const localIsEmpty = records.length === 0 && assets.length === 0;
+    if(localIsEmpty && driveFileId){
+      const res = await fetch(
+        `https://www.googleapis.com/drive/v3/files/${driveFileId}?alt=media`,
+        { headers:{ 'Authorization':`Bearer ${accessToken}` } }
+      );
+      if(res.ok){
+        const data = await res.json();
+        if(data.records)    records    = data.records;
+        if(data.categories) categories = data.categories;
+        if(data.assets)     assets     = data.assets;
+        lsSet('fin_records', records);
+        lsSet('fin_cats',    categories);
+        lsSet('fin_assets',  assets);
+        render();
+        if(isManual) toast('تم استرجاع البيانات من جوجل درايف ✓','ok');
+      }
+    }
+
+    // ← ارفع البيانات الحالية للدرايف
+    const payload = buildPayload();
+    const blob    = new Blob([payload], {type:'application/json'});
+
+    if(driveFileId){
+      const res = await fetch(
+        `https://www.googleapis.com/upload/drive/v3/files/${driveFileId}?uploadType=media`,
+        { method:'PATCH', headers:{ 'Authorization':`Bearer ${accessToken}`, 'Content-Type':'application/json' }, body: blob }
+      );
+      if(!res.ok) throw new Error('Update failed: '+res.status);
+    } else {
+      // أنشئ ملف جديد
+      const meta = { name: DRIVE_FILE_NAME, mimeType:'application/json' };
+      const form = new FormData();
+      form.append('metadata', new Blob([JSON.stringify(meta)],{type:'application/json'}));
+      form.append('file', blob);
+      const res = await fetch(
+        'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',
+        { method:'POST', headers:{ 'Authorization':`Bearer ${accessToken}` }, body: form }
+      );
+      const data = await res.json();
+      driveFileId = data.id;
+      lsSet('drive_file_id', driveFileId);
     }
 
     lastSyncTime = Date.now();
     lsSet('last_sync_time', lastSyncTime);
-    lsSet('google_logged_in', true); // نحتفظ إن المستخدم سبق ووافق — مش هنطلب consent تاني
+    lsSet('google_logged_in', true);
     cloudStatus = 'synced'; updateCloudUI();
     if(isManual) toast('تمت المزامنة مع جوجل درايف ✓','ok');
   } catch(err){
     console.error('Sync error:', err);
-    // لو انتهت صلاحية الـ token — امسحه عشان المرة الجاية يتجدد تلقائي
     if(err.message === 'no_token' || (err.status === 401)){
       gapi.client.setToken(null);
     }
@@ -727,27 +747,74 @@ async function doSync(isManual=false){
   }
 }
 
-// استعادة البيانات من جوجل درايف
+// استعادة البيانات من جوجل درايف (تعمل حتى بدون driveFileId مخزّن)
 async function restoreFromDrive(){
-  if(!gapiInited||!gisInited||!driveFileId){ toast('سجّل الدخول أولاً للاستعادة','warn'); return; }
-  tokenClient.callback = async(resp)=>{
-    if(resp.error){ toast('فشل تسجيل الدخول','err'); return; }
-    gapi.client.setToken(resp);
+  if(!gapiInited||!gisInited){ toast('جاري تهيئة مكتبات جوجل...','warn'); return; }
+  const doRestore = async () => {
     try{
       const accessToken = gapi.client.getToken().access_token;
+      // لو مافيش fileId مخزّن — ابحث في الدرايف بالاسم
+      if(!driveFileId){
+        const listResp = await gapi.client.drive.files.list({
+          q:`name='${DRIVE_FILE_NAME}' and trashed=false`, fields:'files(id)'
+        });
+        const files = listResp.result.files;
+        if(!files || files.length === 0){ toast('لا توجد بيانات محفوظة في جوجل درايف','warn'); return; }
+        driveFileId = files[0].id;
+        lsSet('drive_file_id', driveFileId);
+      }
       const res = await fetch(
         `https://www.googleapis.com/drive/v3/files/${driveFileId}?alt=media`,
         { headers:{ 'Authorization':`Bearer ${accessToken}` } }
       );
+      if(!res.ok) throw new Error('fetch_failed');
       const data = await res.json();
       if(data.records)    records    = data.records;
       if(data.categories) categories = data.categories;
       if(data.assets)     assets     = data.assets;
-      await save(); render(); toast('تمت الاستعادة من جوجل درايف ✓','ok');
-    }catch(err){ toast('فشل استرجاع البيانات','err'); }
+      lastSyncTime = Date.now();
+      lsSet('last_sync_time', lastSyncTime);
+      lsSet('google_logged_in', true);
+      cloudStatus = 'synced';
+      await save(); render(); updateCloudUI();
+      toast('تمت الاستعادة من جوجل درايف ✓','ok');
+    }catch(err){ console.error(err); toast('فشل استرجاع البيانات','err'); }
   };
-  if(gapi.client.getToken()===null) tokenClient.requestAccessToken({prompt:'consent'});
-  else tokenClient.requestAccessToken({prompt:''});
+
+  const existingToken = gapi.client.getToken();
+  if(existingToken && existingToken.access_token){
+    await doRestore(); return;
+  }
+  tokenClient.callback = async(resp)=>{
+    if(resp.error){ toast('فشل تسجيل الدخول','err'); return; }
+    gapi.client.setToken(resp);
+    await doRestore();
+  };
+  tokenClient.requestAccessToken({prompt:'consent'});
+}
+
+// مزامنة تلقائية عند الفتح لو سبق للمستخدم الموافقة على جوجل
+async function autoSyncOnStartup(){
+  if(!lsGet('google_logged_in', false)) return; // لو مسجّلش دخول قبل كده — لا تفعل شيء
+  if(!gapiInited||!gisInited){
+    // انتظر الـ gapi يتجهز ثم حاول
+    setTimeout(autoSyncOnStartup, 800); return;
+  }
+  const existingToken = gapi.client.getToken();
+  if(existingToken && existingToken.access_token){
+    // Token موجود — مزامن مباشرة
+    cloudStatus='syncing'; updateCloudUI();
+    await doSync(false);
+    return;
+  }
+  // حاول تجديد التوكن بصمت (بدون نافذة)
+  tokenClient.callback = async(resp)=>{
+    if(resp.error){ cloudStatus='local'; updateCloudUI(); return; }
+    gapi.client.setToken(resp);
+    cloudStatus='syncing'; updateCloudUI();
+    await doSync(false);
+  };
+  tokenClient.requestAccessToken({prompt:'none'});
 }
 
 // ══ SECURITY ═══════════════════════════════════════════════════════
