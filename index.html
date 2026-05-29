@@ -640,14 +640,17 @@ function requestGoogleToken(prompt, onSuccess, onFail){
 
 // ابحث عن fileId بالاسم في appDataFolder (يشتغل على كل الأجهزة)
 async function findOrCreateFile(accessToken){
-  // ابحث أولاً
+  // ابحث أولاً — مع استثناء الملفات المحذوفة (trashed=false)
+  const q = encodeURIComponent(`name='${DRIVE_FILE_NAME}' and trashed=false`);
   const searchResp = await fetch(
-    `https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=name%3D'${DRIVE_FILE_NAME}'&fields=files(id)&pageSize=1`,
+    `https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=${q}&fields=files(id)&pageSize=1`,
     { headers:{ 'Authorization':`Bearer ${accessToken}` } }
   );
   const searchData = await searchResp.json();
   if(searchData.files && searchData.files.length > 0){
     driveFileId = searchData.files[0].id;
+    // احفظ الـ ID محلياً فوراً لضمان مرجع ثابت على كل الأجهزة
+    lsSet('drive_file_id', driveFileId);
     return 'found';
   }
   // مش موجود — أنشئ ملف جديد فاضي
@@ -662,6 +665,8 @@ async function findOrCreateFile(accessToken){
   );
   const createData = await createResp.json();
   driveFileId = createData.id;
+  // احفظ الـ ID محلياً فور الإنشاء لضمان مرجع ثابت
+  lsSet('drive_file_id', driveFileId);
   return 'created';
 }
 
@@ -682,7 +687,15 @@ async function uploadToDrive(accessToken){
     if(!token||!token.access_token) return;
     accessToken = token.access_token;
   }
-  if(!driveFileId) return; // مش هنرفع لو مش عارفين الـ ID
+  // تحقق استباقي: لو الـ ID مش موجود في الذاكرة، اجلبه من السحابة أولاً
+  if(!driveFileId){
+    driveFileId = lsGet('drive_file_id', null);
+  }
+  if(!driveFileId){
+    // لا يوجد ID محلياً — ابحث في السحابة عن الملف الأصلي الموحد
+    await findOrCreateFile(accessToken);
+  }
+  if(!driveFileId) return; // تعذّر الحصول على الـ ID
   const payload = buildPayload();
   const res = await fetch(
     `https://www.googleapis.com/upload/drive/v3/files/${driveFileId}?uploadType=media`,
@@ -704,29 +717,57 @@ async function doSync(isManual=false){
     const fileStatus = await findOrCreateFile(accessToken);
 
     if(fileStatus === 'found'){
-      // اجيب البيانات من الدرايف وقارن
-      const driveData = await pullFromDrive(accessToken);
-      const driveTime = driveData.savedAt || 0;
+      // اجيب البيانات من الدرايف وقارن التوقيتين
+      const cloudData = await pullFromDrive(accessToken);
+      const cloudTime = cloudData.savedAt || 0;
       const localTime = lastSyncTime || 0;
 
-      if(driveTime > localTime){
-        // الدرايف أحدث — حمّل منه
-        if(driveData.records)    records    = driveData.records;
-        if(driveData.categories) categories = driveData.categories;
-        if(driveData.assets)     assets     = driveData.assets;
-        lsSet('fin_records', records);
-        lsSet('fin_cats',    categories);
-        lsSet('fin_assets',  assets);
-        lastSyncTime = driveTime;
-        lsSet('last_sync_time', lastSyncTime);
-        render();
+      if(cloudTime > localTime){
+        // ☁️ السحابة أحدث — يوجد جهاز آخر عدّل الملف الموحد
+        const applyCloud = () => {
+          if(cloudData.records)    records    = cloudData.records;
+          if(cloudData.categories) categories = cloudData.categories;
+          if(cloudData.assets)     assets     = cloudData.assets;
+          lsSet('fin_records', records);
+          lsSet('fin_cats',    categories);
+          lsSet('fin_assets',  assets);
+          lastSyncTime = cloudTime;
+          lsSet('last_sync_time', lastSyncTime);
+          render();
+          cloudStatus='synced'; updateCloudUI();
+          toast('تم تحميل أحدث البيانات من الدرايف ✓','ok');
+          closeModal();
+        };
+
+        if(isManual){
+          // المزامنة اليدوية — اعرض نافذة تأكيد قبل الاستبدال
+          openModal({
+            icon: '☁️',
+            title: 'بيانات أحدث في السحابة',
+            body: `تم اكتشاف تعديلات أجراها جهاز آخر في السحابة.<br/>هل تريد تحميل البيانات الأحدث واستبدال البيانات المحلية؟`,
+            danger: false,
+            cancelLabel: 'إبقاء المحلي',
+            okLabel: 'تحميل من السحابة',
+            okClass: 'green',
+            onOk: applyCloud
+          });
+          cloudStatus='synced'; updateCloudUI();
+        } else {
+          // مزامنة تلقائية — حمّل مباشرة بدون تدخل
+          applyCloud();
+        }
+        return;
+      } else {
+        // 💾 الجهاز الحالي أحدث — ارفع التعديلات المحلية للسحابة فوراً
+        await uploadToDrive(accessToken);
+        lsSet('google_logged_in', true);
         cloudStatus='synced'; updateCloudUI();
-        if(isManual) toast('تم جلب أحدث البيانات من الدرايف ✓','ok');
-        return; // خلصنا — البيانات المحلية اتحدثت
+        if(isManual) toast('تمت المزامنة مع جوجل درايف ✓','ok');
+        return;
       }
     }
 
-    // البيانات المحلية أحدث أو ملف جديد — ارفع
+    // ملف جديد تم إنشاؤه — ارفع البيانات المحلية عليه
     await uploadToDrive(accessToken);
     lsSet('google_logged_in', true);
     cloudStatus='synced'; updateCloudUI();
