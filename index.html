@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/>
+<meta name="theme-color" content="#0f172a"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="apple-mobile-web-app-title" content="ميزانيتي"/>
+<title>ميزانيتي - سحابي</title>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap" rel="stylesheet"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script async defer src="https://apis.google.com/js/api.js" onload="gapiLoaded()"></script>
+<script async defer src="https://accounts.google.com/gsi/client" onload="gisLoaded()"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+:root{
+  --bg:#0f172a;--surface:#1e293b;--border:#334155;
+  --text:#e2e8f0;--muted:#94a3b8;--dim:#475569;
+  --green:#22c55e;--red:#ef4444;--blue:#3b82f6;--amber:#f59e0b;--purple:#a78bfa;
+  --sb:env(safe-area-inset-bottom,0px);
+}
+html,body{height:100%;background:var(--bg);font-family:'Cairo',sans-serif;color:var(--text);overflow:hidden}
+input,select,button,textarea{font-family:'Cairo',sans-serif;color:var(--text)}
+button{cursor:pointer;border:none;outline:none}
+select{appearance:none;-webkit-appearance:none}
+#app{display:flex;flex-direction:column;height:100dvh}
+#hdr{background:var(--surface);border-bottom:1px solid var(--border);padding:12px 14px 8px;flex-shrink:0}
+.hdr-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.logo{display:flex;align-items:center;gap:9px}
+.logo-ic{width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,#3b82f6,#06b6d4);display:flex;align-items:center;justify-content:center;font-size:17px}
+.logo-t{font-weight:900;font-size:16px}
+.logo-s{font-size:10px;color:var(--muted)}
+.hdr-left{display:flex;align-items:center;gap:8px}
+.settings-btn{background:transparent;font-size:22px;padding:4px;display:flex;align-items:center;justify-content:center;transition:transform 0.3s}
+.settings-btn:hover{transform:rotate(45deg)}
+.hdr-btns{display:flex;gap:5px;flex-wrap:wrap}
+.hdr-btn{border-radius:8px;padding:6px 10px;font-weight:700;font-size:11px;display:flex;align-items:center;gap:4px}
+.btn-export{background:linear-gradient(135deg,#16a34a,#15803d);color:#fff}
+.btn-import{background:var(--border);color:var(--text)}
+.btn-backup{background:linear-gradient(135deg,#3b82f6,#1d4ed8);color:#fff}
+#content{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:14px 13px;padding-bottom:calc(74px + var(--sb))}
+#nav{position:fixed;bottom:0;left:0;right:0;background:var(--surface);border-top:1px solid var(--border);display:flex;padding-bottom:var(--sb);z-index:100}
+.nb{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 2px;background:transparent;color:var(--dim);font-size:9px;font-weight:700}
+.nb.on{color:var(--blue)}
+.nb .ni{font-size:20px}
+.nb .bar{height:3px;width:22px;border-radius:99px}
+.nb.on .bar{background:var(--blue)}
+
+/* الأزرار داخل قائمة الإعدادات المنبثقة */
+.setting-row-btn{width:100%;padding:12px;margin-bottom:8px;border-radius:9px;font-weight:700;font-size:13px;text-align:center;display:flex;align-items:center;justify-content:center;gap:8px}
+.btn-gconnect{background:#fff;color:#000}
+.btn-gdisconnect{background:rgba(239,68,68,0.15);color:var(--red);border:1px solid rgba(239,68,68,0.3)}
+.btn-gstatus{background:var(--border);color:var(--text)}
+
+/* القوالب والكروت الافتراضية */
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:12px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:13px;padding:14px}
+.card.full{grid-column:1/-1}
+.cl{font-size:11px;color:var(--muted);margin-bottom:5px}
+.cv{font-size:20px;font-weight:900}
+.cs{font-size:10px;color:var(--dim);margin-top:2px}
+.sec{background:var(--surface);border:1px solid var(--border);border-radius:13px;margin-bottom:12px;overflow:hidden}
+.sec-h{padding:12px 14px;border-bottom:1px solid var(--border);font-weight:700;font-size:13px}
+.br{padding:9px 14px;border-bottom:1px solid #1a2f4a}
+.bt{background:var(--bg);border-radius:99px;height:6px;overflow:hidden}
+.bf{height:100%;border-radius:99px;transition:width .5s}
+.tx{display:flex;align-items:center;gap:10px;padding:11px 14px;border-bottom:1px solid #1a2f4a}
+.tx-ic{font-size:22px;flex-shrink:0}
+.tx-inf{flex:1;min-width:0}
+.tx-cat{font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tx-meta{font-size:10px;color:var(--dim);margin-top:1px}
+.tx-amt{font-weight:900;font-size:14px;flex-shrink:0;text-align:left}
+.tx-btns{display:flex;gap:5px;margin-top:4px}
+.tx-del{background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);color:var(--red);border-radius:7px;padding:5px 9px;font-size:13px}
+.tx-edit{background:rgba(59,130,246,.12);border:1px solid rgba(59,130,246,.3);color:#60a5fa;border-radius:7px;padding:5px 9px;font-size:13px}
+.bdg{display:inline-block;padding:1px 8px;border-radius:99px;font-size:10px;font-weight:700;margin-right:4px}
+.bi{background:rgba(34,197,94,.15);color:var(--green)}
+.be{background:rgba(239,68,68,.15);color:var(--red)}
+.ba{background:rgba(245,158,11,.15);color:var(--amber)}
+.bs{background:rgba(167,139,250,.15);color:var(--purple)}
+.ast{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid #1a2f4a}
+.ast-ic{font-size:22px;flex-shrink:0}
+.ast-inf{flex:1;min-width:0}
+.ast-name{font-weight:700;font-size:13px}
+.ast-meta{font-size:10px;color:var(--dim);margin-top:2px}
+.ast-val{font-weight:900;font-size:14px;color:var(--amber);flex-shrink:0}
+.ast-btns{display:flex;gap:5px;margin-top:4px}
+.ast-sell{background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.3);color:var(--green);border-radius:7px;padding:5px 10px;font-size:12px;font-weight:700}
+.ast-del{background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);color:var(--red);border-radius:7px;padding:5px 10px;font-size:12px;font-weight:700}
+.fc{background:var(--surface);border:1px solid var(--border);border-radius:15px;padding:18px}
+.ft{font-weight:900;font-size:17px;margin-bottom:18px}
+.tgl{display:flex;background:var(--bg);border-radius:11px;padding:3px;margin-bottom:16px;gap:3px}
+.tb{flex:1;padding:10px 4px;border:none;border-radius:9px;font-weight:700;font-size:13px;background:transparent;color:var(--dim);transition:all .2s;min-width:0;white-space:nowrap}
+.tb.ai{background:linear-gradient(135deg,#16a34a,#15803d);color:#fff}
+.tb.ae{background:linear-gradient(135deg,#dc2626,#b91c1c);color:#fff}
+.tb.aa{background:linear-gradient(135deg,#d97706,#b45309);color:#fff}
+.fld{margin-bottom:14px}
+.fld label{display:block;font-size:11px;color:var(--muted);margin-bottom:6px;font-weight:600}
+.fld input,.fld select,.fld textarea{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:9px;padding:12px 13px;color:var(--text);font-size:14px;outline:none;direction:rtl}
+.sbtn{width:100%;padding:14px;border:none;border-radius:11px;color:#fff;font-weight:900;font-size:15px;margin-top:4px}
+.si{background:linear-gradient(135deg,#16a34a,#15803d)}
+.se{background:linear-gradient(135deg,#dc2626,#b91c1c)}
+.sa{background:linear-gradient(135deg,#d97706,#b45309)}
+.flts{display:flex;gap:7px;margin-bottom:12px;flex-wrap:wrap}
+.fsel{background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:9px 11px;color:var(--text);font-size:12px;flex:1;direction:rtl;outline:none}
+.fclr{background:var(--border);border:none;border-radius:9px;padding:9px 12px;font-size:12px;font-weight:700}
+.csc{background:var(--surface);border:1px solid var(--border);border-radius:13px;padding:16px;margin-bottom:12px}
+.ct{font-weight:900;font-size:15px;margin-bottom:3px}
+.csb{font-size:11px;color:var(--muted);margin-bottom:14px}
+.ctgl{display:flex;background:var(--bg);border-radius:11px;padding:3px;margin-bottom:14px;gap:3px}
+.ctb{flex:1;padding:9px 4px;border:none;border-radius:99px;font-weight:700;font-size:12px;background:transparent;color:var(--dim)}
+.ctb.ai{background:linear-gradient(135deg,#16a34a,#15803d);color:#fff}
+.ctb.ae{background:linear-gradient(135deg,#dc2626,#b91c1c);color:#fff}
+.ctb.aa{background:linear-gradient(135deg,#d97706,#b45309);color:#fff}
+.acr{display:flex;gap:7px;margin-bottom:12px}
+.aci{flex:1;background:var(--bg);border:1px solid var(--border);border-radius:9px;padding:11px 12px;color:var(--text);font-size:13px;outline:none;direction:rtl}
+.acb{padding:11px 16px;border:none;border-radius:9px;color:#fff;font-weight:700;font-size:13px;white-space:nowrap}
+.acb.ai{background:linear-gradient(135deg,#16a34a,#15803d)}
+.acb.ae{background:linear-gradient(135deg,#dc2626,#b91c1c)}
+.acb.aa{background:linear-gradient(135deg,#d97706,#b45309)}
+.ci{display:flex;align-items:center;gap:7px;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:11px 12px;margin-bottom:7px}
+.cd{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.cn{flex:1;font-weight:600;font-size:13px}
+.ceb{background:rgba(59,130,246,.15);border:1px solid rgba(59,130,246,.3);color:#60a5fa;border-radius:7px;padding:6px 10px;font-size:12px;font-weight:700}
+.cdb{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);color:var(--red);border-radius:7px;padding:6px 10px;font-size:12px;font-weight:700}
+.cei{flex:1;background:var(--surface);border:1px solid var(--blue);border-radius:7px;padding:7px 11px;color:var(--text);font-size:13px;outline:none;direction:rtl}
+.csave{background:#16a34a;border:none;border-radius:7px;color:#fff;padding:7px 11px;font-weight:700;font-size:12px}
+.ccancel{background:var(--border);border:none;border-radius:7px;color:var(--text);padding:7px 11px;font-weight:700;font-size:12px}
+.tip{background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.2);border-radius:10px;padding:11px 13px;font-size:11px;color:var(--muted);margin-top:4px}
+#toast{position:fixed;top:14px;left:50%;transform:translateX(-50%) translateY(-70px);background:#22c55e;color:#fff;padding:10px 22px;border-radius:11px;font-weight:700;font-size:13px;z-index:9999;transition:transform .3s;white-space:nowrap;box-shadow:0 6px 20px rgba(0,0,0,.4)}
+#toast.show{transform:translateX(-50%) translateY(0)}
+#moverlay{position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:800;display:none;align-items:center;justify-content:center;padding:18px}
+#moverlay.show{display:flex}
+.modal{background:var(--surface);border:1px solid var(--border);border-radius:15px;padding:22px;max-width:340px;width:100%;text-align:center;max-height:90vh;overflow-y:auto}
+.modal.danger{border-color:var(--red)}
+.mic{font-size:30px;margin-bottom:8px}
+.mt{font-weight:700;font-size:15px;margin-bottom:7px}
+.mb{color:var(--muted);font-size:12px;margin-bottom:18px;line-height:1.7}
+.mbtns{display:flex;gap:8px;justify-content:center;margin-top:16px}
+.mcancel{padding:9px 20px;background:var(--border);border:none;border-radius:99px;color:var(--text);font-weight:700;font-size:13px}
+.mok{padding:9px 20px;border:none;border-radius:99px;color:#fff;font-weight:700;font-size:13px}
+.mok.red{background:#dc2626}
+.mok.green{background:#16a34a}
+.mok.blue{background:#3b82f6}
+.empty{color:var(--dim);text-align:center;padding:28px 14px;font-size:12px}
+.empty-i{font-size:32px;margin-bottom:6px}
+.hidden{display:none}
+#loading{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:9000;flex-direction:column;gap:12px}
+#loading .sp{width:36px;height:36px;border:3px solid var(--border);border-top-color:var(--blue);border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<div id="toast"></div>
+
+<div id="loading">
+  <div class="sp"></div>
+  <div style="font-size:13px;color:var(--muted);font-weight:700">جاري التحميل المالي والسحابي...</div>
+</div>
+
+<div id="moverlay">
+  <div class="modal" id="modal">
+    <div class="mic" id="m-icon"></div>
+    <div class="mt" id="m-title"></div>
+    <div class="mb" id="m-body"></div>
+    <div id="m-extra"></div>
+    <div class="mbtns" id="m-btns"></div>
+  </div>
+</div>
+
+<input type="file" id="imp-file" accept=".xlsx,.xls" class="hidden" onchange="importExcel(this)"/>
+
+<div id="app">
+  <div id="hdr">
+    <div class="hdr-top">
+      <div class="logo">
+        <div class="logo-ic">💰</div>
+        <div><div class="logo-t">ميزانيتي</div><div class="logo-s">دخل &bull; مصروف &bull; أصول</div></div>
+      </div>
+      <div class="hdr-left">
+        <button class="settings-btn" onclick="openSettingsModal()">⚙️</button>
+      </div>
+    </div>
+    <div class="hdr-btns">
+      <button class="hdr-btn btn-backup" onclick="backupToDriveManual()">🔄 نسخة الآن</button>
+      <button class="hdr-btn btn-import" onclick="document.getElementById('imp-file').click()">📂 استيراد</button>
+      <button class="hdr-btn btn-export" onclick="exportExcel()">📥 Excel</button>
+    </div>
+  </div>
+  
+  <div id="content"></div>
+  
+  <nav id="nav">
+    <button class="nb on" data-t="dashboard" onclick="goTab('dashboard')"><span class="ni">📊</span><span>الرئيسية</span><div class="bar"></div></button>
+    <button class="nb" data-t="add" onclick="goTab('add')"><span class="ni">➕</span><span>إضافة</span><div class="bar"></div></button>
+    <button class="nb" data-t="assets" onclick="goTab('assets')"><span class="ni">💎</span><span>الأصول</span><div class="bar"></div></button>
+    <button class="nb" data-t="records" onclick="goTab('records')"><span class="ni">📋</span><span>السجلات</span><div class="bar"></div></button>
+    <button class="nb" data-t="categories" onclick="goTab('categories')"><span class="ni">🏷️</span><span>الفئات</span><div class="bar"></div></button>
+  </nav>
+</div>
+
+<script>
+// ═══ GOOGLE DRIVE CONFIGURATION ════════════════════════════════════
+// ضع هنا بيانات مشروع Google Cloud الخاص بك ليعمل الربط السحابي بشكل كامل ومستقر
+const CLIENT_ID = 'YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com';
+const API_KEY = 'YOUR_GOOGLE_API_KEY';
+const SCOPES = 'https://www.googleapis.com/auth/drive.file';
+
+let tokenClient;
+let gapiInited = false;
+let gisInited = false;
+let gDriveAccessToken = null;
+
+function gapiLoaded() { gapi.load('client', initializeGapiClient); }
+async function initializeGapiClient() {
+  await gapi.client.init({ apiKey: API_KEY, discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'] });
+  gapiInited = true; checkAuthPrompt();
+}
+function gisLoaded() {
+  tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: CLIENT_ID, scope: SCOPES, callback: '', 
+  });
+  gisInited = true; checkAuthPrompt();
+}
+
+// ══ STATE ══════════════════════════════════════════════════════════
+let records    = [];
+let categories = { income:['راتب','عمل حر'], expense:['سكن','طعام','مواصلات'], asset:['ذهب','عقارات'] };
+let assets     = [];
+let currentTab = 'dashboard';
+let addType    = 'income';
+let catTab     = 'income';
+let filterType = 'all';
+let filterMonth= '';
+let editingCat = null;
+
+async function stoSave(k, v) {
+  const s = JSON.stringify(v);
+  try { localStorage.setItem(k, s); } catch(e) {}
+}
+async function stoLoad(k, def) {
+  try { const v = localStorage.getItem(k); if (v !== null) return JSON.parse(v); } catch(e) {}
+  return def;
+}
+async function save() {
+  await Promise.all([
+    stoSave('fin_records', records),
+    stoSave('fin_cats',    categories),
+    stoSave('fin_assets',  assets)
+  ]);
+}
+
+async function initData() {
+  records = await stoLoad('fin_records', []);
+  categories = await stoLoad('fin_cats', categories);
+  assets = await stoLoad('fin_assets', []);
+  gDriveAccessToken = localStorage.getItem('gdrive_token') || null;
+  document.getElementById('loading').style.display = 'none';
+  render();
+  setTimeout(checkPeriodicBackupPrompt, 3000); // فحص التذكير بالنسخ الاحتياطي بعد الفتح بثوانٍ
+}
+
+// ═══ GOOGLE DRIVE CORE LOGIC ══════════════════════════════════════
+function checkAuthPrompt() {
+  if(gapiInited && gisInited && gDriveAccessToken) {
+    gapi.client.setToken({ access_token: gDriveAccessToken });
+  }
+}
+
+function connectGoogleDrive() {
+  if (!tokenClient) { toast('جاري تهيئة خدمات سحابة جوجل، انتظر ثوانٍ...','#f59e0b'); return; }
+  tokenClient.callback = async (resp) => {
+    if (resp.error !== undefined) { throw (resp); }
+    gDriveAccessToken = resp.access_token;
+    localStorage.setItem('gdrive_token', gDriveAccessToken);
+    gapi.client.setToken({ access_token: gDriveAccessToken });
+    toast('تم ربط حساب Google Drive بنجاح! 💾');
+    closeModal();
+  };
+  tokenClient.requestAccessToken({ prompt: 'consent' });
+}
+
+function disconnectGoogleDrive() {
+  gDriveAccessToken = null;
+  localStorage.removeItem('gdrive_token');
+  gapi.client.setToken(null);
+  toast('تم تسجيل الخروج وفصل Google Drive');
+  closeModal();
+}
+
+async function checkDriveStatus() {
+  if (!gDriveAccessToken) { toast('الحساب غير مرتبط بـ Google Drive حالياً','#ef4444'); return; }
+  try {
+    const response = await gapi.client.drive.about.get({ fields: 'user' });
+    toast(`متصل بنجاح بحساب: ${response.result.user.displayName} ✓`);
+  } catch (err) {
+    toast('انتهت صلاحية الجلسة، يرجى إعادة الاتصال','#ef4444');
+  }
+}
+
+// إنشاء المجلد وحفظ البيانات السحابية
+async function getOrCreateBackupFolder() {
+  const resp = await gapi.client.drive.files.list({
+    q: "name = 'MyBudget_Backups' and mimeType = 'application/vnd.google-apps.folder' and trashed = false",
+    fields: 'files(id)'
+  });
+  if (resp.result.files.length > 0) return resp.result.files[0].id;
+  
+  const fMetadata = { 'name': 'MyBudget_Backups', 'mimeType': 'application/vnd.google-apps.folder' };
+  const folder = await gapi.client.drive.files.create({ resource: fMetadata, fields: 'id' });
+  return folder.result.id;
+}
+
+async function uploadBackupPayload() {
+  if (!gDriveAccessToken) {
+    toast('يرجى ربط الأبلكيشن بـ Google Drive أولاً من قائمة الإعدادات ⚙️', '#f59e0b');
+    openSettingsModal();
+    return;
+  }
+  toast('جاري رفع النسخة الاحتياطية للسحابة... ⏳', '#3b82f6');
+  try {
+    const folderId = await getOrCreateBackupFolder();
+    const payload = { records, categories, assets, exportedAt: new Date().toISOString() };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    
+    const metadata = { 'name': `backup_${new Date().toISOString().split('T')[0]}.json`, 'parents': [folderId] };
+    const form = new FormData();
+    form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+    form.append('file', blob);
+
+    await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+      method: 'POST', headers: new Headers({ 'Authorization': 'Bearer ' + gDriveAccessToken }), body: form
+    });
+
+    localStorage.setItem('last_backup_timestamp', Date.now().toString());
+    toast('تم حفظ النسخة الاحتياطية في المجلد بنجاح السحابي ✓');
+  } catch (e) {
+    console.error(e);
+    toast('فشل الرفع السحابي، يرجى التحقق من الربط أو الاتصال بالإنترنت', '#ef4444');
+  }
+}
+
+function backupToDriveManual() { uploadBackupPayload(); }
+
+// فحص دوري للتذكير (كل 24 ساعة)
+function checkPeriodicBackupPrompt() {
+  const lastBackup = parseInt(localStorage.getItem('last_backup_timestamp') || '0');
+  const dynamicInterval = 24 * 60 * 60 * 1000; // 24 ساعة كاملة
+  if (Date.now() - lastBackup > dynamicInterval) {
+    openModal({
+      icon: '🔄', title: 'نسخ احتياطي دوري',
+      body: 'لقد مرت فترة منذ آخر عملية حفظ سحابي للبيانات. هل تود مزامنة بياناتك الحالية مع Google Drive الآن لحمايتها؟',
+      danger: false, okLabel: 'نسخ احتياطي الآن', okClass: 'blue', cancelLabel: 'لاحقاً',
+      onOk: () => { closeModal(); uploadBackupPayload(); }
+    });
+  }
+}
+
+// فتح قائمة الإعدادات ذات الـ 3 أزرار
+function openSettingsModal() {
+  openModal({
+    icon: '⚙️', title: 'إعدادات الحفظ السحابي',
+    body: 'تحكم في المزامنة التلقائية واليدوية لبياناتك المالية عبر حساب Google الخاص بك:',
+    extra: `
+      <div style="margin-top:12px">
+        <button class="setting-row-btn btn-gconnect" onclick="connectGoogleDrive()">🔗 زر 1: ربط حساب Google Drive</button>
+        <button class="setting-row-btn btn-gstatus" onclick="checkDriveStatus()">🔍 زر 2: فحص حالة التزامن السحابي</button>
+        <button class="setting-row-btn btn-gdisconnect" onclick="disconnectGoogleDrive()">🚪 زر 3: تسجيل الخروج وفصل الحساب</button>
+      </div>
+    `,
+    danger: false, cancelLabel: 'إغلاق النافذة', okLabel: ''
+  });
+}
+
+// ══ UTILS & RENDER (باقي كود النظام المالي الفرعي بدون أي تعديل منطقي مكسور) ═══════════════
+function fmt(n){return Number(n).toLocaleString('ar-EG',{minimumFractionDigits:2})}
+function today(){return new Date().toISOString().split('T')[0]}
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2)}
+
+let _tt;
+function toast(msg,color='#22c55e'){
+  const el=document.getElementById('toast');
+  el.textContent=msg;el.style.background=color;el.classList.add('show');
+  clearTimeout(_tt);_tt=setTimeout(()=>el.classList.remove('show'),2500);
+}
+
+function goTab(t){ currentTab=t; document.querySelectorAll('.nb').forEach(b=>b.classList.toggle('on',b.dataset.t===t)); render(); }
+
+function openModal({icon='⚠️',title,body,extra='',danger=true,cancelLabel='إلغاء',okLabel,okClass='red',onOk}){
+  document.getElementById('m-icon').innerHTML=icon;
+  document.getElementById('m-title').textContent=title;
+  document.getElementById('m-body').innerHTML=body;
+  document.getElementById('m-extra').innerHTML=extra;
+  document.getElementById('modal').className='modal'+(danger?' danger':'');
+  document.getElementById('m-btns').innerHTML=`
+    <button class="mcancel" onclick="closeModal()">${esc(cancelLabel)}</button>
+    ${okLabel?`<button class="mok ${okClass}" id="mok-btn">${esc(okLabel)}</button>`:''}`;
+  if(okLabel) document.getElementById('mok-btn').onclick=onOk;
+  document.getElementById('moverlay').classList.add('show');
+}
+function closeModal(){document.getElementById('moverlay').classList.remove('show')}
+
+const MIS=`width:100%;background:var(--bg);border:1px solid var(--border);border-radius:9px;padding:10px 12px;color:var(--text);font-size:14px;outline:none;direction:rtl;font-family:Cairo,sans-serif;-webkit-appearance:none;appearance:none`;
+const MLBL=t=>`<label style="display:block;font-size:11px;color:var(--muted);margin-bottom:5px;font-weight:600;text-align:right">${t}</label>`;
+
+async function addRecord(){
+  const catEl=document.getElementById('f-cat'); const cat=catEl?catEl.value:'';
+  const amt=parseFloat(document.getElementById('f-amount').value); const desc=document.getElementById('f-desc').value.trim();
+  const date=document.getElementById('f-date').value||today();
+  if(!cat){toast('أضف فئة أولاً من تبويب الفئات','#ef4444');return}
+  if(!amt||amt<=0){toast('أدخل مبلغاً صحيحاً','#ef4444');return}
+  records.unshift({id:uid(),type:addType,category:cat,amount:amt,description:desc,date});
+  await save(); toast('تم إضافة السجل ✓'); document.getElementById('f-amount').value=''; document.getElementById('f-desc').value=''; render();
+}
+
+function editRecord(id){
+  const r=records.find(x=>x.id===id); if(!r)return; const cats=categories[r.type]||[];
+  const catOpts=cats.length===0 ?`<option value="${esc(r.category)}" selected>${esc(r.category)}</option>` :cats.map(c=>`<option value="${esc(c)}" ${c===r.category?'selected':''}>${esc(c)}</option>`).join('');
+  openModal({
+    icon:r.type==='income'?'💚':'❤️', title:'تعديل السجل', body:'',
+    extra:`<div style="text-align:right">
+      <div style="margin-bottom:10px">${MLBL('الفئة')}<select id="er-cat" style="${MIS}">${catOpts}</select></div>
+      <div style="margin-bottom:10px">${MLBL('المبلغ (جنيه)')}<input id="er-amt" type="number" inputmode="decimal" value="${r.amount}" style="${MIS}"/></div>
+      <div style="margin-bottom:10px">${MLBL('الوصف')}<input id="er-desc" type="text" value="${esc(r.description||'')}" style="${MIS}"/></div>
+      <div>${MLBL('التاريخ')}<input id="er-date" type="date" value="${r.date}" style="${MIS}"/></div>
+    </div>`,
+    danger:false,okLabel:'حفظ التعديل',okClass:'green',
+    onOk:async()=>{
+      const newCat=document.getElementById('er-cat').value; const newAmt=parseFloat(document.getElementById('er-amt').value);
+      const newDesc=document.getElementById('er-desc').value.trim(); const newDate=document.getElementById('er-date').value||today();
+      if(!newAmt||newAmt<=0){toast('أدخل مبلغاً صحيحاً','#ef4444');return}
+      records=records.map(x=>x.id===id?{...x,category:newCat,amount:newAmt,description:newDesc,date:newDate}:x);
+      await save();closeModal();render();toast('تم التعديل ✓');
+    }
+  });
+}
+
+async function deleteRecord(id){ records=records.filter(r=>r.id!==id); await save();render();toast('تم حذف السجل','#f97316'); }
+
+async function addAsset(){
+  const catEl=document.getElementById('f-cat'); const cat=catEl?catEl.value:''; const name=document.getElementById('f-ast-name').value.trim();
+  const price=parseFloat(document.getElementById('f-amount').value); const qty=parseFloat(document.getElementById('f-ast-qty').value)||1;
+  const desc=document.getElementById('f-desc').value.trim(); const date=document.getElementById('f-date').value||today();
+  if(!cat){toast('أضف فئة أصول أولاً','#ef4444');return} if(!name){toast('أدخل اسم الأصل','#ef4444');return} if(!price||price<=0){toast('أدخل سعر الشراء','#ef4444');return}
+  const total=price*qty;
+  records.unshift({id:uid(),type:'expense',category:'شراء أصول',amount:total,description:`شراء: ${name}`,date});
+  assets.unshift({id:uid(),name,category:cat,buyPrice:price,qty,totalCost:total,date,note:desc});
+  await save();toast('تم تسجيل الأصل وخصم المبلغ ✓','#f59e0b');
+  document.getElementById('f-amount').value=''; document.getElementById('f-ast-name').value=''; document.getElementById('f-ast-qty').value='1'; document.getElementById('f-desc').value='';
+  render();
+}
+
+function sellAsset(id){
+  const ast=assets.find(a=>a.id===id); if(!ast)return;
+  openModal({
+    icon:'💵',title:`بيع: ${ast.name}`, body:`سعر الشراء: <strong style="color:var(--amber)">${fmt(ast.totalCost)} جنيه</strong>`,
+    extra:`<div style="text-align:right;margin-top:14px">${MLBL('سعر البيع الإجمالي (جنيه)')}<input id="sell-price" type="number" inputmode="decimal" placeholder="0.00" style="${MIS}"/></div>`,
+    danger:false,okLabel:'تأكيد البيع',okClass:'green',
+    onOk:async()=>{
+      const sell=parseFloat(document.getElementById('sell-price').value); if(!sell||sell<=0){toast('أدخل سعر البيع','#ef4444');return}
+      const profit=sell-ast.totalCost; const profitText=profit>=0?`ربح ${fmt(profit)}`:`خسارة ${fmt(Math.abs(profit))}`;
+      records.unshift({id:uid(),type:'income',category:'بيع أصول',amount:sell,description:`بيع: ${ast.name} (${profitText})`,date:today()});
+      assets=assets.filter(a=>a.id!==id); await save();closeModal();render(); toast(`تم بيع "${ast.name}" — ${profitText}`,'#22c55e');
+    }
+  });
+}
+
+function deleteAsset(id){
+  const ast=assets.find(a=>a.id===id); if(!ast)return;
+  openModal({
+    icon:'🗑️',title:'حذف الأصل', body:`هل تريد حذف <strong style="color:var(--amber)">"${esc(ast.name)}"</strong>؟`,
+    okLabel:'حذف',okClass:'red', onOk:async()=>{assets=assets.filter(a=>a.id!==id);await save();closeModal();render();toast('تم حذف الأصل','#f97316')}
+  });
+}
+
+async function addCat(){
+  const inp=document.getElementById('new-cat-input'); const name=inp.value.trim(); if(!name){toast('اكتب اسم الفئة','#ef4444');return}
+  if(!categories[catTab].includes(name)){ categories[catTab].push(name); await save(); inp.value=''; render(); toast(`تم إضافة "${name}" ✓`); } else { toast('هذه الفئة موجودة بالفعل','#f59e0b'); }
+}
+function startEditCat(type,name){editingCat={type,name};render();const i=document.getElementById('eci');if(i){i.focus();i.select()}}
+async function saveEditCat(){
+  const inp=document.getElementById('eci');if(!inp)return; const newName=inp.value.trim(); if(!newName){toast('اكتب اسم الفئة','#ef4444');return}
+  const{type,name:old}=editingCat; categories[type]=categories[type].map(c=>c===old?newName:c);
+  records=records.map(r=>r.type===type&&r.category===old?{...r,category:newName}:r); assets=assets.map(a=>a.category===old?{...a,category:newName}:a);
+  editingCat=null;await save();render();toast('تم التعديل ✓');
+}
+function cancelEditCat(){editingCat=null;render()}
+function deleteCat(type,name){
+  const used=records.filter(r=>r.type===type&&r.category===name).length; const astUsed=assets.filter(a=>a.category===name).length;
+  const total=used+astUsed;
+  const doDelete=async()=>{
+    categories[type]=categories[type].filter(c=>c!==name);
+    records=records.map(r=>r.type===type&&r.category===name?{...r,category:'غير محدد'}:r); assets=assets.map(a=>a.category===name?{...a,category:'غير محدد'}:a);
+    await save();closeModal();render();toast('تم الحذف','#f97316');
+  };
+  if(total>0){ openModal({icon:'⚠️',title:'تحذير',body:`الفئة "${esc(name)}" مستخدمة في ${total} عنصر. حذفها سيحولها لـ"غير محدد".`,okLabel:'حذف رغم ذلك',onOk:doDelete}); }
+  else{ categories[type]=categories[type].filter(c=>c!==name); save();render();toast(`تم حذف "${name}"`,'#f97316'); }
+}
+
+function exportExcel(){
+  const wb=XLSX.utils.book_new(); const inc=records.filter(r=>r.type==='income').reduce((s,r)=>s+r.amount,0); const exp=records.filter(r=>r.type==='expense').reduce((s,r)=>s+r.amount,0);
+  const bal=inc-exp; const astVal=assets.reduce((s,a)=>s+a.totalCost,0); const wealth=bal+astVal;
+  const ws1=XLSX.utils.aoa_to_sheet([['تقرير مالي شامل',''],['التاريخ',new Date().toLocaleDateString('ar-EG')],['',''],['إجمالي الدخل',inc],['إجمالي المصروف',exp],['الرصيد النقدي الصافي',bal],['إجمالي قيمة الأصول',astVal],['إجمالي الثروة',wealth]]);
+  ws1['!cols']=[{wch:26},{wch:18}]; XLSX.utils.book_append_sheet(wb,ws1,'الملخص');
+  const ir=[['التاريخ','الفئة','المبلغ','الوصف']]; records.filter(r=>r.type==='income').forEach(r=>ir.push([r.date,r.category,r.amount,r.description||'-'])); if(ir.length>1)ir.push(['','العائد الإجمالي',{f:`SUM(C2:C${ir.length})`},'']);
+  const ws2=XLSX.utils.aoa_to_sheet(ir);ws2['!cols']=[{wch:13},{wch:18},{wch:13},{wch:30}]; XLSX.utils.book_append_sheet(wb,ws2,'الدخل');
+  const er=[['التاريخ','الفئة','المبلغ','الوصف']]; records.filter(r=>r.type==='expense').forEach(r=>er.push([r.date,r.category,r.amount,r.description||'-'])); if(er.length>1)er.push(['','المصروف الإجمالي',{f:`SUM(C2:C${er.length})`},'']);
+  const ws3=XLSX.utils.aoa_to_sheet(er);ws3['!cols']=[{wch:13},{wch:18},{wch:13},{wch:30}]; XLSX.utils.book_append_sheet(wb,ws3,'المصروف');
+  XLSX.writeFile(wb,`ميزانيتي_${today()}.xlsx`); toast('تم التصدير ✓');
+}
+
+function importExcel(inp){
+  const file=inp.files[0];if(!file)return; const reader=new FileReader();
+  reader.onload=async e=>{
+    try{
+      const wb=XLSX.read(e.target.result,{type:'binary'}); let imported=0;
+      if(wb.SheetNames.includes('الدخل')){
+        const rows=XLSX.utils.sheet_to_json(wb.Sheets['الدخل'],{header:1});
+        rows.slice(1).forEach(r=>{ if(r[0]&&r[1]&&r[2]&&!isNaN(r[2])&&r[1]!=='العائد الإجمالي'){ records.push({id:uid(),type:'income',date:String(r[0]),category:String(r[1]),amount:parseFloat(r[2]),description:r[3]||''}); imported++; } });
+      }
+      if(wb.SheetNames.includes('المصروف')){
+        const rows=XLSX.utils.sheet_to_json(wb.Sheets['المصروف'],{header:1});
+        rows.slice(1).forEach(r=>{ if(r[0]&&r[1]&&r[2]&&!isNaN(r[2])&&r[1]!=='المصروف الإجمالي'){ records.push({id:uid(),type:'expense',date:String(r[0]),category:String(r[1]),amount:parseFloat(r[2]),description:r[3]||''}); imported++; } });
+      }
+      records.sort((a,b)=>b.date.localeCompare(a.date)); await save();render(); toast(`تم استيراد ${imported} عنصر مالى بنجاح ✓`);
+    }catch(err){toast('خطأ في قراءة وهيكل الملف','#ef4444')}
+  };
+  reader.readAsBinaryString(file); inp.value='';
+}
+
+function render(){
+  const el=document.getElementById('content');
+  if(currentTab==='dashboard') el.innerHTML=rDashboard();
+  else if(currentTab==='add') el.innerHTML=rAdd();
+  else if(currentTab==='assets') el.innerHTML=rAssets();
+  else if(currentTab==='records') el.innerHTML=rRecords();
+  else if(currentTab==='categories') el.innerHTML=rCategories();
+}
+
+function rDashboard(){
+  const inc=records.filter(r=>r.type==='income').reduce((s,r)=>s+r.amount,0); const exp=records.filter(r=>r.type==='expense').reduce((s,r)=>s+r.amount,0);
+  const bal=inc-exp; const astVal=assets.reduce((s,a)=>s+a.totalCost,0); const wealth=bal+astVal;
+  const catMap=t=>{ const m={}; records.filter(r=>r.type===t).forEach(r=>{m[r.category]=(m[r.category]||0)+r.amount}); return Object.entries(m).sort((a,b)=>b[1]-a[1]); };
+  const incC=catMap('income'),expC=catMap('expense');
+  const astByC={}; assets.forEach(a=>{astByC[a.category]=(astByC[a.category]||0)+a.totalCost}); const astCatList=Object.entries(astByC).sort((a,b)=>b[1]-a[1]);
+  const mI=incC[0]?.[1]||1, mE=expC[0]?.[1]||1, mA=astCatList[0]?.[1]||1;
+  const bars=(data,color,max)=>data.length===0 ?`<div class="empty">لا توجد بيانات للرسم البياني</div>` :data.map(([c,a])=>`<div class="br"><div class="br-top"><span>${esc(c)}</span><span style="color:${color};font-weight:700">${fmt(a)}</span></div><div class="bt"><div class="bf" style="background:${color};width:${(a/max*100).toFixed(1)}%"></div></div></div>`).join('');
+  const recent=records.slice(0,5);
+  return `
+  <div class="cards">
+    <div class="card full" style="border-color:rgba(167,139,250,.3);background:rgba(167,139,250,.07)"><div style="display:flex;justify-content:space-between"><div><div class="cl">إجمالي الثروة</div><div class="cv" style="color:var(--purple);font-size:24px">${fmt(wealth)}</div></div><span>💎</span></div></div>
+    <div class="card"><div><div class="cl">الرصيد النقدي</div><div class="cv" style="color:${bal>=0?'#38bdf8':'var(--red)'}">${fmt(bal)}</div></div></div>
+    <div class="card"><div><div class="cl">قيمة الأصول</div><div class="cv" style="color:var(--amber)">${fmt(astVal)}</div></div></div>
+  </div>
+  <div class="sec">
+    <div class="sec-h">🗓️ آخر المعاملات</div>
+    ${recent.length===0?`<div class="empty">لا توجد معاملات بعد</div>`:recent.map(r=>`<div class="tx"><div class="tx-ic">${r.type==='income'?'💹':'💵'}</div><div class="tx-inf"><div class="tx-cat">${esc(r.category)}</div><div class="tx-meta">${r.date}</div></div><div class="tx-amt" style="color:${r.type==='income'?'var(--green)':'var(--red)'}">${fmt(r.amount)}</div></div>`).join('')}
+  </div>
+  <div class="sec"><div class="sec-h">📈 توزيع الدخل</div>${bars(incC,'var(--green)',mI)}</div>
+  <div class="sec"><div class="sec-h">📉 توزيع المصروفات</div>${bars(expC,'var(--red)',mE)}</div>
+  `;
+}
+
+function rAdd(){
+  const cats=categories[addType]||[]; const opts=cats.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join(''); const isAst=addType==='asset';
+  return `
+  <div class="fc">
+    <div class="tgl">
+      <button class="tb ${addType==='income'?'ai':''}" onclick="addType='income';render()">دخل</button>
+      <button class="tb ${addType==='expense'?'ae':''}" onclick="addType='expense';render()">مصروف</button>
+      <button class="tb ${addType==='asset'?'aa':''}" onclick="addType='asset';render()">شراء أصول</button>
+    </div>
+    <div style="text-align:right">
+      <div class="fld"><label>الفئة</label><select id="f-cat">${opts}</select></div>
+      ${isAst?`<div class="fld"><label>اسم الأصل</label><input id="f-ast-name" type="text" placeholder="مثال: سبائك ذهب"/></div>`:''}
+      <div class="fld"><label>المبلغ</label><input id="f-amount" type="number" inputmode="decimal" placeholder="0.00"/></div>
+      ${isAst?`<div class="fld"><label>الكمية</label><input id="f-ast-qty" type="number" inputmode="decimal" value="1"/></div>`:''}
+      <div class="fld"><label>الوصف</label><input id="f-desc" type="text" placeholder="ملاحظات..."/></div>
+      <div class="fld"><label>التاريخ</label><input id="f-date" type="date" value="${today()}"/></div>
+      <button class="sbtn ${addType==='income'?'si':addType==='expense'?'se':'sa'}" onclick="${isAst?'addAsset()':'addRecord()'}">حفظ السجل</button>
+    </div>
+  </div>`;
+}
+
+function rAssets(){
+  const tot=assets.reduce((s,a)=>s+a.totalCost,0);
+  return `<div class="card full" style="margin-bottom:12px"><div class="cl">إجمالي الأصول</div><div class="cv" style="color:var(--amber)">${fmt(tot)}</div></div>
+  <div class="sec"><div class="sec-h">💎 الأصول الحالية</div>${assets.length===0?`<div class="empty">لا توجد أصول</div>`:assets.map(a=>`<div class="ast"><div class="ast-inf"><div class="ast-name">${esc(a.name)}</div><div class="ast-meta">الكمية: ${a.qty}</div><div class="ast-btns"><button class="ast-sell" onclick="sellAsset('${a.id}')">بيع</button><button class="ast-del" onclick="deleteAsset('${a.id}')">حذف</button></div></div><div class="ast-val">${fmt(a.totalCost)}</div></div>`).join('')}</div>`;
+}
+
+function rRecords(){
+  let filtered=records.filter(r=> (filterType==='all'||r.type===filterType) && (!filterMonth||r.date.startsWith(filterMonth)) );
+  return `
+  <div class="flts">
+    <select class="fsel" onchange="filterType=this.value;render()"><option value="all">كل السجلات</option><option value="income">الدخل</option><option value="expense">المصروفات</option></select>
+  </div>
+  <div class="sec"><div class="sec-h">📋 السجلات المفلترة (${filtered.length})</div>${filtered.length===0?`<div class="empty">لا توجد سجلات</div>`:filtered.map(r=>`<div class="tx"><div class="tx-inf"><div>${esc(r.category)}</div><div class="tx-meta">${r.date}</div><div class="tx-btns"><button class="tx-edit" onclick="editRecord('${r.id}')">تعديل</button><button class="tx-del" onclick="deleteRecord('${r.id}')">حذف</button></div></div><div class="tx-amt" style="color:${r.type==='income'?'var(--green)':'var(--red)'}">${fmt(r.amount)}</div></div>`).join('')}</div>`;
+}
+
+function rCategories(){
+  const list=categories[catTab]||[];
+  return `<div class="csc"><div class="ctgl"><button class="ctb ${catTab==='income'?'ai':''}" onclick="catTab='income';render()">دخل</button><button class="ctb ${catTab==='expense'?'ae':''}" onclick="catTab='expense';render()">مصروف</button></div><div class="acr"><input id="new-cat-input" class="aci" type="text" placeholder="فئة جديدة..."/><button class="acb ${catTab==='income'?'ai':'ae'}" onclick="addCat()">إضافة</button></div></div>
+  <div class="sec"><div class="sec-h">الفئات الحالية</div>${list.map(c=>`<div class="ci"><div class="cn">${esc(c)}</div><button class="cdb" onclick="deleteCat('${catTab}','${esc(c)}')">🗑️</button></div>`).join('')}</div>`;
+}
+
+initData();
+</script>
+</body>
+</html>
